@@ -977,6 +977,7 @@ from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
 from src.cad_understanding import architecture as understanding_architecture
+from src.cad_understanding import project_card as engineering_project
 from src.cad_understanding import validators as understanding_validators
 from src.cad_understanding import view_grounding as understanding_view
 from src.cad_understanding import vision as understanding_vision
@@ -5214,6 +5215,34 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000) -> Di
     candidates, not confirmed building elements. Does not calculate loads or sizes.
     """
     return understanding_architecture.analyze_architectural_drawing(entity_limit=entity_limit)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def get_project_card(ctx: Context, project_id: str) -> Dict[str, Any]:
+    """Read project inputs, revision and missing/assumed input gates in the current workspace."""
+    return engineering_project.get_project_card(project_id)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False))
+def update_project_card(ctx: Context, project_id: str, fields: Dict[str, Any],
+                        expected_revision: int, change_reason: str) -> Dict[str, Any]:
+    """Persist project inputs in SQLite, not DWG. Use revision 0 to create; otherwise read first.
+
+    Each field has value, status (confirmed/assumed/missing), source, optional note.
+    Names: address, city, state, jurisdiction, work_type, occupancy, risk_category,
+    story_count, story_heights, units, coordinate_system, materials,
+    architectural_constraints, geotechnical_information, supports_and_load_paths, code_basis.
+    Heights are positive numbers in units (mm/cm/m/in/ft), one per story.
+    code_basis is a list of document/edition/jurisdiction/applicability/reference objects.
+    Confirmed means explicitly supported by supplied evidence; never invent missing inputs.
+    """
+    return engineering_project.update_project_card(project_id, fields, expected_revision, change_reason)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def get_project_card_history(ctx: Context, project_id: str, limit: int = 20) -> Dict[str, Any]:
+    """Read immutable project-card revisions, newest first (up to 100)."""
+    return engineering_project.get_project_card_history(project_id, limit)
 
 
 @mcp.tool(
