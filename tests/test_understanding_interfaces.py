@@ -43,6 +43,7 @@ def test_server_understanding_tool_functions_importable():
         server = importlib.import_module("src.server")
 
     for name in [
+        "analyze_architectural_drawing",
         "build_drawing_ir",
         "summarize_drawing",
         "explain_entity",

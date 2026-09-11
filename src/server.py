@@ -483,6 +483,7 @@ def _humanize_tool_name(name: str) -> str:
 
 def _registration_category(name: str) -> str:
     if name in {
+        "analyze_architectural_drawing",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -975,6 +976,7 @@ from src.cad_understanding import ir_builder as understanding_ir_builder
 from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
+from src.cad_understanding import architecture as understanding_architecture
 from src.cad_understanding import validators as understanding_validators
 from src.cad_understanding import view_grounding as understanding_view
 from src.cad_understanding import vision as understanding_vision
@@ -3698,6 +3700,7 @@ def _registered_tools():
 
 def _tool_category(name: str) -> str:
     if name in {
+        "analyze_architectural_drawing",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -5199,6 +5202,19 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 # =================================================================================================
 #  CAD UNDERSTANDING TOOLS
 # =================================================================================================
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
+)
+def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000) -> Dict[str, Any]:
+    """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
+
+    Run scan_all_entities first on the intended drawing. Reads cached geometry only;
+    never changes or saves the DWG. Reports wall, opening, grid, column and boundary
+    candidates, not confirmed building elements. Does not calculate loads or sizes.
+    """
+    return understanding_architecture.analyze_architectural_drawing(entity_limit=entity_limit)
+
 
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),

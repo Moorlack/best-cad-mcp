@@ -1,5 +1,9 @@
 # best-cad-mcp
 
+This maintained fork adds a read-only [architectural DWG candidate inventory](docs/architectural-analysis.md)
+through `analyze_architectural_drawing`. It preserves handles and uncertainty;
+structural calculations and building-code checks are not included in this first increment.
+
 <!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
 
 [![PyPI](https://img.shields.io/pypi/v/best-cad-mcp?color=3775A9)](https://pypi.org/project/best-cad-mcp/)
@@ -217,9 +221,9 @@ backward compatibility.
 
 | Profile | Tools | Intended use |
 | --- | ---: | --- |
-| `lean` | 114 | Smallest dependable surface for common drawing and inspection tasks |
-| `core` | 215 | Recommended default for full guarded CAD workflows |
-| `full` | 322 | Every registered tool, including specialized and legacy operations |
+| `lean` | 115 | Smallest dependable surface for common drawing and inspection tasks |
+| `core` | 216 | Recommended default for full guarded CAD workflows |
+| `full` | 323 | Every registered tool, including specialized and legacy operations |
 
 Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through

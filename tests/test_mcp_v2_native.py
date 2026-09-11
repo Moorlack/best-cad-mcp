@@ -243,7 +243,8 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
     ) = asyncio.run(exercise_stdio())
 
     assert protocol == "2026-07-28"
-    assert len(tools.tools) == 114
+    assert len(tools.tools) == 115
+    assert "analyze_architectural_drawing" in {tool.name for tool in tools.tools}
     assert resources.resources
     assert prompts.prompts
     assert resource.contents[0].mime_type == "text/markdown"
