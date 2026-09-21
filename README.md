@@ -8,6 +8,9 @@ Engineering roadmap and implementation status: [BACKLOG.md](BACKLOG.md) (Russian
 
 Versioned engineering inputs and missing-data gates: [project cards](docs/project-card.md).
 
+Check actual WMF conversion and image resizing without accessing CAD:
+[`check_visual_pipeline`](docs/visual-selftest.md).
+
 <!-- mcp-name: io.github.LokmenoWer/best-cad-mcp -->
 
 [![PyPI](https://img.shields.io/pypi/v/best-cad-mcp?color=3775A9)](https://pypi.org/project/best-cad-mcp/)
@@ -225,9 +228,9 @@ backward compatibility.
 
 | Profile | Tools | Intended use |
 | --- | ---: | --- |
-| `lean` | 118 | Smallest dependable surface for common drawing and inspection tasks |
-| `core` | 219 | Recommended default for full guarded CAD workflows |
-| `full` | 326 | Every registered tool, including specialized and legacy operations |
+| `lean` | 119 | Smallest dependable surface for common drawing and inspection tasks |
+| `core` | 220 | Recommended default for full guarded CAD workflows |
+| `full` | 327 | Every registered tool, including specialized and legacy operations |
 
 Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through

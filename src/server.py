@@ -978,6 +978,7 @@ from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
 from src.cad_understanding import architecture as understanding_architecture
 from src.cad_understanding import project_card as engineering_project
+from src.visual_selftest import check_visual_pipeline as run_visual_pipeline_check
 from src.cad_understanding import validators as understanding_validators
 from src.cad_understanding import view_grounding as understanding_view
 from src.cad_understanding import vision as understanding_vision
@@ -5221,6 +5222,16 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000) -> Di
 def get_project_card(ctx: Context, project_id: str) -> Dict[str, Any]:
     """Read project inputs, revision and missing/assumed input gates in the current workspace."""
     return engineering_project.get_project_card(project_id)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def check_visual_pipeline(ctx: Context) -> Dict[str, Any]:
+    """Test bundled WMF rendering and image resizing in temporary files without accessing CAD.
+
+    Reports actual conversion success, not merely installed executables. Does not
+    prove live DWG export or client display. May take time while trying converters.
+    """
+    return run_visual_pipeline_check()
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False))

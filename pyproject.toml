@@ -85,6 +85,7 @@ exclude = ["build*"]
 
 [tool.setuptools.package-data]
 prompts = ["*.md"]
+src = ["assets/*.wmf"]
 
 [build-system]
 requires = ["setuptools>=75.0", "wheel"]

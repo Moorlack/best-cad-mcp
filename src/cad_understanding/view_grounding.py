@@ -320,6 +320,7 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
             result = subprocess.run(
                 [magick, str(wmf_path), str(png_path)],
                 capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 timeout=30,
             )
             if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
@@ -344,6 +345,7 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
             result = subprocess.run(
                 [inkscape, str(wmf_path), "--export-type=png", f"--export-filename={png_path}"],
                 capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 timeout=30,
             )
             if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
@@ -359,6 +361,7 @@ def _try_convert_wmf_to_raster(wmf_path: Path) -> Optional[Path]:
                 [soffice, "--headless", "--convert-to", "png", "--outdir",
                  str(png_path.parent), str(wmf_path)],
                 capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 timeout=45,
             )
             if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:
@@ -426,6 +429,7 @@ finally {
                     encoded_command,
                 ],
                 capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 timeout=45,
             )
             if result.returncode == 0 and png_path.exists() and png_path.stat().st_size > 0:

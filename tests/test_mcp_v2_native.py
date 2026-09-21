@@ -243,7 +243,8 @@ def test_modern_protocol_runs_over_real_stdio(tmp_path):
     ) = asyncio.run(exercise_stdio())
 
     assert protocol == "2026-07-28"
-    assert len(tools.tools) == 118
+    assert len(tools.tools) == 119
+    assert "check_visual_pipeline" in {tool.name for tool in tools.tools}
     assert "analyze_architectural_drawing" in {tool.name for tool in tools.tools}
     assert resources.resources
     assert prompts.prompts
