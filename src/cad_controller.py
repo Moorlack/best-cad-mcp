@@ -18,6 +18,7 @@ import logging
 import os
 import shutil
 import time
+from contextlib import contextmanager
 from typing import Optional, List, Tuple, Dict, Any
 from src.cad_utils import DetailLevel, com_get, com_set
 
@@ -880,14 +881,39 @@ class CADController:
                 selection_set.AddItems(win32com.client.VARIANT(
                     pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, items
                 ))
-            self.doc.Export(export_path, format_type, selection_set)
-            self._wait_for_export_file(filepath, format_type)
+            with self._wmf_export_colors(format_type):
+                self.doc.Export(export_path, format_type, selection_set)
+                self._wait_for_export_file(filepath, format_type)
         finally:
             if selection_set is not None:
                 try:
                     selection_set.Delete()
                 except Exception:
                     pass
+
+    @contextmanager
+    def _wmf_export_colors(self, format_type: str):
+        """Preserve on-screen text/mask contrast in WMF and restore the session setting.
+
+        Transparent WMF export can remap foreground colors while leaving MTEXT
+        masks dark, hiding ByLayer block attributes. WMFBKGND=1 preserves colors
+        and the drawing background. This setting is not saved in the DWG.
+        """
+        if format_type.upper() != "WMF":
+            yield
+            return
+        document = self.doc
+        previous = document.GetVariable("WMFBKGND")
+        try:
+            document.SetVariable("WMFBKGND", 1)
+            yield
+        finally:
+            try:
+                document.SetVariable("WMFBKGND", previous)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"WMF export could not restore WMFBKGND to {previous!r}; check the AutoCAD session."
+                ) from exc
 
     def _strip_export_extension(self, filepath: str, format_type: str) -> str:
         root, ext = os.path.splitext(filepath)

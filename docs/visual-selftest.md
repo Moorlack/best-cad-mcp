@@ -32,6 +32,26 @@ installation of the visual extra.
 
 ## Limits and Claude check
 
+### Live WMF text contrast
+
+WMF exports now temporarily set `WMFBKGND=1` and restore its previous value in a
+finally block, including export failure. This preserves the AutoCAD background
+and original foreground colors. Previously, transparent export could make ByLayer
+block attributes dark against dark MTEXT background masks. The image pipeline
+then received an already unreadable WMF; resizing was not the cause.
+
+The fix was verified on a live drawing with Glass/Vent attributes: all ten Glass
+and five Vent labels became visible. No entity/font/color was edited. The session
+setting, Saved flag and DBMOD were unchanged after export. Failure to restore the
+setting is reported explicitly, not silently ignored. Non-WMF exports are unchanged.
+
+This is a source-only update delivered by Repair / Extend using the existing
+installer. The resulting image may have a dark background matching AutoCAD.
+No automatic cropping or pixel mapping changes are included.
+
+Autodesk references: [WMFBKGND](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-LT/files/GUID-51DB9284-EAF6-478E-8A3F-2A18E7A9263B.htm)
+and [WMFFOREGND](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-485219AF-71F4-4E7A-B5FD-BE53E358AC54.htm).
+
 PASS verifies local WMF conversion and raster preparation, not live DWG export,
 pixel/handle mapping accuracy, or client image display. SVG/Cairo native-library
 availability is not certified by this WMF test. No engineering inference occurs.
