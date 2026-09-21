@@ -65,18 +65,30 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         clear_db:     是否先清空数据库（默认True）
         max_entities: 最大扫描实体数（默认5000）
     """
-    _sync_db_active_drawing()
-    if clear_db:
-        db.clear_entities(
-            clear_annotations=clear_annotations,
-            clear_understanding=clear_understanding,
-        )
     result = ctrl.scan_model_space(
         max_entities,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         capture_visual_geometry=capture_visual_geometry,
     )
+    if "error" in result:
+        raise RuntimeError(str(result["error"]))
+    drawing = result.get("drawing", {})
+    if isinstance(drawing.get("name"), str) and drawing["name"]:
+        db.activate_drawing(name=drawing["name"], path=drawing.get("path", ""))
+    else:
+        _sync_db_active_drawing()
+        # Older scan providers lack a document identity: don't attach units
+        # to a scope obtained from a separate ActiveDocument lookup.
+        result.pop("units_metadata", None)
+    if clear_db:
+        db.clear_entities(
+            clear_annotations=clear_annotations,
+            clear_understanding=clear_understanding,
+        )
+    # Clear old declarations before replacing the entity cache, including failures.
+    from src.cad_understanding.drawing_units import unit_metadata
+    db.set_drawing_units(unit_metadata())
     entities = result.get("entities", [])
     type_stats = result.get("type_stats", {})
 
@@ -94,6 +106,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         derive_bbox=False,
         topology_detail=topology_detail,
     )
+    db.set_drawing_units(result.get("units_metadata") or unit_metadata())
 
     lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
     lines.append(f"\n实体类型统计 ({len(type_stats)} 种):")

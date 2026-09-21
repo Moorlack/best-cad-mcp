@@ -105,6 +105,9 @@ requires human review. Candidate counts are not counts of physical elements.
           "Analyze a fresh full scan of the intended drawing/space; this tool reads the cache only.")
     if str(drawing.get("units", "unknown")).lower() in {"", "unknown", "unitless", "0"}:
         issue("units_unverified", [], "Confirm drawing units against dimensions before using coordinates.")
+    elif not drawing.get("units_metadata", {}).get("geometry_scale_verified"):
+        issue("geometry_scale_unverified", [],
+              "INSUNITS declares insertion units only; verify geometry scale against dimensions before calculations.")
     total = section.get("total", len(entities))
     truncated = bool(section.get("truncated") or total != len(entities))
     if truncated:

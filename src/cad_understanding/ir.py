@@ -223,6 +223,7 @@ class DrawingOverviewIR:
     name: str = "active"
     path: str = ""
     units: str = "unknown"
+    units_metadata: Dict[str, Any] = field(default_factory=dict)
     extents: Dict[str, Any] = field(default_factory=dict)
     counts: Dict[str, Any] = field(default_factory=dict)
 

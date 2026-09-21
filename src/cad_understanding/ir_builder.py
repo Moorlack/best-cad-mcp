@@ -747,10 +747,12 @@ def build_drawing_ir(rescan: bool = False,
     ]
 
     extents = bbox_dict(bbox_union(bbox_from_row(entity) for entity in entities))
+    units_metadata = db.get_drawing_units()
     drawing = to_dict(DrawingOverviewIR(
         name=ctx.drawing_name,
         path=ctx.drawing_path,
-        units="unknown",
+        units=units_metadata["units"],
+        units_metadata=units_metadata,
         extents=extents,
         counts={
             "entities": len(entities),

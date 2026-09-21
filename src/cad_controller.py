@@ -3626,7 +3626,17 @@ class CADController:
         if level not in {DetailLevel.MINIMAL, DetailLevel.STANDARD, DetailLevel.FULL}:
             level = DetailLevel.MINIMAL
 
-        model_space = self.doc.ModelSpace
+        document = self.doc
+        model_space = document.ModelSpace
+        from src.cad_understanding.drawing_units import unit_metadata
+        try:
+            scan_units = unit_metadata(document.GetVariable("INSUNITS"), captured=True)
+        except Exception:
+            scan_units = unit_metadata(captured=True)
+        scan_drawing = {
+            "name": com_get(document, "Name", ""),
+            "path": com_get(document, "FullName", ""),
+        }
         total_available = int(com_get(model_space, "Count", 0) or 0)
         limit = total_available if max_entities is None else max(0, int(max_entities))
         count = min(total_available, limit)
@@ -3822,6 +3832,8 @@ class CADController:
             "entities": entities,
             "total": count,
             "total_available": total_available,
+            "drawing": scan_drawing,
+            "units_metadata": scan_units,
             "scanned": count,
             "truncated": count < total_available,
             "detail_level": level,
