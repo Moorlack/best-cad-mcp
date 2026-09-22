@@ -153,6 +153,20 @@ def test_missing_block_properties_do_not_invent_transform():
         assert field not in entity
 
 
+def test_failed_bulge_read_is_not_reported_as_known_straight_geometry():
+    class BrokenCurve(_VisualPolyline):
+        def GetBulge(self, index):
+            raise RuntimeError("COM read failed")
+
+    controller = _controller_with_entities(BrokenCurve())
+    with patch("src.cad_controller.win32com.client.Dispatch", side_effect=lambda e: e):
+        scanned = controller.scan_model_space(capture_visual_geometry=True)["entities"][0]
+    assert scanned["bulges_complete"] is False
+    assert "visual_path" not in scanned
+    from src.cad_understanding.boundaries import check_boundary
+    assert check_boundary(scanned)["reason"] == "curve_data_incomplete"
+
+
 def _controller_with_entities(*entities) -> CADController:
     document = MagicMock()
     document.ModelSpace = _FakeModelSpace(entities)

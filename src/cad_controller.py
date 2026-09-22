@@ -3838,13 +3838,18 @@ class CADController:
                             info["elevation"] = round(numeric_elevation, 9)
                         if obj_name != "AcDb3dPolyline" and vertices:
                             bulges: List[float] = []
+                            bulges_complete = True
                             segment_count = len(vertices) if closed else max(0, len(vertices) - 1)
                             for vertex_index in range(segment_count):
                                 try:
                                     bulge = float(typed_ent.GetBulge(vertex_index))
                                 except Exception:
                                     bulge = 0.0
-                                bulges.append(round(bulge, 12) if math.isfinite(bulge) else 0.0)
+                                    bulges_complete = False
+                                if not math.isfinite(bulge):
+                                    bulges_complete = False
+                                bulges.append(bulge if math.isfinite(bulge) else 0.0)
+                            info["bulges_complete"] = bulges_complete
                             if bulges:
                                 info["bulges"] = bulges
                                 visual_path = self._scan_bulged_polyline_visual_path(
@@ -3853,7 +3858,7 @@ class CADController:
                                     closed,
                                     normal=normal,
                                     elevation=elevation,
-                                )
+                                ) if bulges_complete else []
                                 if visual_path:
                                     info["visual_path"] = visual_path
                 entities.append(info)

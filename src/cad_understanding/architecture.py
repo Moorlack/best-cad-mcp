@@ -17,6 +17,7 @@ from src.cad_database import CADDatabase
 
 from .ir_builder import build_drawing_ir
 from .block_attributes import summarize_block_attributes
+from .boundaries import check_boundary
 from .result import error_result, ok_result
 
 
@@ -98,6 +99,8 @@ requires human review. Candidate counts are not counts of physical elements.
     drawing = deepcopy(drawing_ir.get("drawing", {}))
     identity = str(drawing.get("path") or drawing.get("name") or "unknown")
     candidates, unclassified, issues = [], [], []
+    boundary_checks = []
+    boundary_budget = 100
 
     def issue(code: str, handles: list[str], message: str) -> None:
         issues.append({"code": code, "handles": handles, "message": message})
@@ -129,6 +132,24 @@ requires human review. Candidate counts are not counts of physical elements.
         geometry = entity.get("geometry") or {}
         properties = entity.get("properties") or {}
         shape, limitations = _shape(entity)
+        kinds = {str(entity.get(key) or "").lower().removeprefix("acdb")
+                 for key in ("object_name", "entity_type")}
+        boundary_check = None
+        if kinds & {"polyline", "2dpolyline", "lwpolyline"} and (
+                geometry.get("closed") is True or shape == "closed_polyline"):
+            if boundary_budget:
+                boundary_check = check_boundary(geometry)
+                boundary_budget -= 1
+            else:
+                boundary_check = {"status": "not_verified", "reason": "report_boundary_limit_exceeded",
+                                  "geometric_area_drawing_units_squared": None,
+                                  "floor_area_verified": False, "holes_checked": False}
+            boundary_checks.append({"handle": handle, **boundary_check})
+            if boundary_check["status"] != "valid_simple_polygon":
+                issue("boundary_" + boundary_check["status"], [handle], boundary_check["reason"])
+            else:
+                limitations = [w for w in limitations if w != "boundary_topology_not_verified"]
+                limitations.append("floor_area_and_holes_not_verified")
         block_name = geometry.get("block_name") or properties.get("block_name") or ""
         names = {"layer": str(entity.get("layer") or "0")}
         if shape == "block_reference" and block_name:
@@ -177,6 +198,7 @@ requires human review. Candidate counts are not counts of physical elements.
                 "geometry": deepcopy(geometry), "bbox": deepcopy(entity.get("bbox", {})),
                 "evidence": evidence + [{"source": "geometry", "value": shape}],
                 "warnings": warnings, "structural_role": "unknown",
+                "boundary_check": deepcopy(boundary_check),
             })
 
     annotations = summarize_block_attributes(entities)
@@ -190,6 +212,7 @@ requires human review. Candidate counts are not counts of physical elements.
     return {
         "schema_version": "architectural-analysis/v1",
         "block_annotations": annotations,
+        "boundary_checks": boundary_checks,
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
@@ -208,7 +231,7 @@ requires human review. Candidate counts are not counts of physical elements.
             "Rule-based naming and primitive geometry only; confidence is not a probability.",
             "Candidates represent source entities, not grouped physical walls or complete building elements.",
             "No wall pairing, opening-to-wall association, floor assignment, or block/xref traversal.",
-            "Closed polylines are not validated floor areas; curves are preserved without area calculation.",
+            "Single straight horizontal contours can have geometric area; floor areas, holes and curved contours remain unverified.",
             "No exterior/interior or load-bearing classification, code checks, or member sizing.",
         ],
     }
