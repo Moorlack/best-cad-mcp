@@ -3772,6 +3772,8 @@ class CADController:
                         info["closed"] = closed
                     elif obj_name == "AcDbBlockReference":
                         # Preserve reference metadata, never explode or traverse a block.
+                        from src.cad_understanding.block_attributes import capture_block_attributes
+                        info["block_attributes"] = capture_block_attributes(typed_ent)
                         for field, prop in (("block_name", "Name"),
                                             ("effective_name", "EffectiveName")):
                             value = com_get(typed_ent, prop, None)

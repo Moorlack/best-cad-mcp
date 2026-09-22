@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 from src.cad_database import CADDatabase
 
 from .ir_builder import build_drawing_ir
+from .block_attributes import summarize_block_attributes
 from .result import error_result, ok_result
 
 
@@ -178,8 +179,17 @@ requires human review. Candidate counts are not counts of physical elements.
                 "warnings": warnings, "structural_role": "unknown",
             })
 
+    annotations = summarize_block_attributes(entities)
+    if annotations["partial_block_handles"] or annotations["not_captured_block_handles"]:
+        issue("block_attributes_incomplete",
+              annotations["partial_block_handles"] + annotations["not_captured_block_handles"],
+              "Some block attributes were not captured completely; inspect the cached per-block read status.")
+    if annotations["truncated"]:
+        issue("block_attribute_report_truncated", [],
+              "Only the first 200 cached attributes are included; inspect individual blocks in CAD-IR.")
     return {
         "schema_version": "architectural-analysis/v1",
+        "block_annotations": annotations,
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),

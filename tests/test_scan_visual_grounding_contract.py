@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -97,6 +98,12 @@ class _Block:
     Visible = False
     IsDynamicBlock = True
 
+    def GetAttributes(self):
+        return (SimpleNamespace(Handle="ATT1", TagString="LABEL", TextString="Glass", Invisible=False),)
+
+    def GetConstantAttributes(self):
+        return ()
+
 
 def test_block_scan_roundtrip_preserves_dynamic_name_and_transform(tmp_path):
     database = _database(tmp_path)
@@ -121,6 +128,12 @@ def test_block_scan_roundtrip_preserves_dynamic_name_and_transform(tmp_path):
     assert geometry["rotation"] == 1.25
     assert geometry["rotation_unit"] == "radian"
     assert report["structural_design_ready"] is False
+    annotations = report["block_annotations"]
+    assert annotations["included"] == 1
+    assert annotations["items"][0]["block_handle"] == "B1"
+    assert annotations["items"][0]["handle"] == "ATT1"
+    assert annotations["items"][0]["text"] == "Glass"
+    assert geometry["block_attributes"]["status"] == "complete"
 
 
 def test_missing_block_properties_do_not_invent_transform():

@@ -28,6 +28,19 @@ def codes(report):
     return {i["code"] for i in report["issues"]}
 
 
+def test_unclassified_block_annotations_do_not_become_semantic_evidence():
+    captured = {"status": "partial", "items": [
+        {"handle": "AT1", "tag": "TYPE", "text": "WALL", "invisible": True,
+         "kind": "reference"}]}
+    drawing = ir([entity("B1", "0", "BlockReference", {
+        "insertion_point": [0, 0, 0], "block_attributes": captured})])
+    report = build_architectural_report(drawing)
+    assert report["candidates"] == []
+    assert report["block_annotations"]["items"][0]["text"] == "WALL"
+    assert "block_attributes_incomplete" in codes(report)
+    assert report["structural_design_ready"] is False
+
+
 def test_synthetic_architectural_plan_preserves_evidence_without_engineering_claims():
     drawing = ir([
         entity("A1", "A-WALL"), entity("A2", "A-DOOR"), entity("A3", "S-GRID"),
