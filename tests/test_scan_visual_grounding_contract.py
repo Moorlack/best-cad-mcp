@@ -8,6 +8,7 @@ from src.cad_controller import CADController
 from src.cad_database import CADDatabase
 from src.cad_tools import query_tools
 from src.cad_understanding.common import topology_for_handle
+from src.cad_understanding.architecture import analyze_architectural_drawing
 from src.cad_understanding.view_grounding import (
     apply_matrix_2d,
     export_view_image_with_mapping,
@@ -77,6 +78,66 @@ class _Visual2dPolyline:
 
     def GetBulge(self, index):
         return 0.0
+
+
+class _Block:
+    ObjectName = "AcDbBlockReference"
+    Handle = "B1"
+    Layer = "0"
+    Color = 256
+    Linetype = "ByLayer"
+    Name = "*U42"
+    EffectiveName = "A-DOOR"
+    InsertionPoint = (10.0, 20.0, 3.0)
+    Rotation = 1.25
+    XScaleFactor = -2.0
+    YScaleFactor = 3.0
+    ZScaleFactor = 1.0
+    Normal = (0.0, 0.0, 1.0)
+    Visible = False
+    IsDynamicBlock = True
+
+
+def test_block_scan_roundtrip_preserves_dynamic_name_and_transform(tmp_path):
+    database = _database(tmp_path)
+    controller = _controller_with_entities(_Block())
+    with (patch.object(query_tools, "ctrl", controller),
+          patch.object(query_tools, "db", database),
+          patch.object(query_tools, "_sync_db_active_drawing"),
+          patch("src.cad_controller.win32com.client.Dispatch", side_effect=lambda e: e)):
+        query_tools.scan_all_entities(include_bounding_boxes=False)
+    report = analyze_architectural_drawing(database=database)["data"]["report"]
+    candidate = report["candidates"][0]
+    assert candidate["category"] == "door"
+    assert candidate["confidence"] == "LOW"
+    assert "entity_not_visible" in candidate["warnings"]
+    assert "block_contents_not_interpreted" in candidate["warnings"]
+    geometry = candidate["geometry"]
+    assert geometry["block_name"] == "*U42"
+    assert geometry["effective_name"] == "A-DOOR"
+    assert geometry["insertion_point"] == [10, 20, 3]
+    assert geometry["x_scale"] == -2
+    assert geometry["y_scale"] == 3
+    assert geometry["rotation"] == 1.25
+    assert geometry["rotation_unit"] == "radian"
+    assert report["structural_design_ready"] is False
+
+
+def test_missing_block_properties_do_not_invent_transform():
+    class Partial(_Block):
+        EffectiveName = None
+        InsertionPoint = (float("nan"), 0, 0)
+        Rotation = float("inf")
+        XScaleFactor = None
+
+    controller = _controller_with_entities(Partial())
+    with patch("src.cad_controller.win32com.client.Dispatch", side_effect=lambda e: e):
+        result = controller.scan_model_space(capture_visual_geometry=True,
+                                            include_bounding_boxes=False)
+    entity = result["entities"][0]
+    assert entity["handle"] == "B1"
+    for field in ("effective_name", "insertion_point", "rotation", "x_scale"):
+        assert field not in entity
 
 
 def _controller_with_entities(*entities) -> CADController:

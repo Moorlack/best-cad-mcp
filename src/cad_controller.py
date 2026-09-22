@@ -3663,6 +3663,7 @@ class CADController:
                         "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse",
                         "AcDbSpline", "AcDbPolyline", "AcDb2dPolyline",
                         "AcDb3dPolyline",
+                        "AcDbBlockReference",
                     }
                 )
                 if read_common_properties or capture_entity_geometry:
@@ -3769,6 +3770,34 @@ class CADController:
                         ))
                         info["is_closed"] = closed
                         info["closed"] = closed
+                    elif obj_name == "AcDbBlockReference":
+                        # Preserve reference metadata, never explode or traverse a block.
+                        for field, prop in (("block_name", "Name"),
+                                            ("effective_name", "EffectiveName")):
+                            value = com_get(typed_ent, prop, None)
+                            if isinstance(value, str) and value:
+                                info[field] = value
+                        point = self._scan_point(com_get(typed_ent, "InsertionPoint", None))
+                        if point and all(math.isfinite(v) for v in point):
+                            info["insertion_point"] = point
+                            info["insertion_point_coordinate_system"] = "WCS"
+                        normal = self._scan_point(com_get(typed_ent, "Normal", None))
+                        if normal and all(math.isfinite(v) for v in normal):
+                            info["normal"] = normal
+                        for field, prop in (("rotation", "Rotation"),
+                                            ("x_scale", "XScaleFactor"),
+                                            ("y_scale", "YScaleFactor"),
+                                            ("z_scale", "ZScaleFactor")):
+                            value = com_get(typed_ent, prop, None)
+                            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                                info[field] = float(value)
+                        if "rotation" in info:
+                            info["rotation_unit"] = "radian"
+                        for field, prop in (("visible", "Visible"),
+                                            ("is_dynamic_block", "IsDynamicBlock")):
+                            value = com_get(typed_ent, prop, None)
+                            if isinstance(value, bool):
+                                info[field] = value
                     elif obj_name in ("AcDbText", "AcDbMText"):
                         info["text"] = com_get(typed_ent, "TextString", "")
                     elif "Polyline" in obj_name:

@@ -132,6 +132,9 @@ requires human review. Candidate counts are not counts of physical elements.
         names = {"layer": str(entity.get("layer") or "0")}
         if shape == "block_reference" and block_name:
             names["block_name"] = str(block_name)
+        effective_name = geometry.get("effective_name")
+        if shape == "block_reference" and effective_name and effective_name != block_name:
+            names["effective_name"] = str(effective_name)
         evidence_by_type = {}
         for category, aliases in NAME_RULES.items():
             evidence = [
@@ -157,13 +160,14 @@ requires human review. Candidate counts are not counts of physical elements.
         for category in sorted(compatible):
             evidence = evidence_by_type.get(category, [])
             confidence = "MEDIUM" if evidence and len(evidence_by_type) == 1 else "LOW"
-            if shape == "block_reference" or entity.get("visible") is False:
+            hidden = entity.get("visible") is False or geometry.get("visible") is False
+            if shape == "block_reference" or hidden:
                 confidence = "LOW"
             key = "\0".join([identity, handle, category])
             warnings = ["requires_architectural_review", *limitations]
             if len(evidence_by_type) > 1:
                 warnings.append("conflicting_semantic_hints")
-            if entity.get("visible") is False:
+            if hidden:
                 warnings.append("entity_not_visible")
             candidates.append({
                 "id": "arch_" + hashlib.sha256(key.encode()).hexdigest()[:20],
