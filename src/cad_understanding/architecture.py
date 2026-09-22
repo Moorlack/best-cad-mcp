@@ -18,6 +18,7 @@ from src.cad_database import CADDatabase
 from .ir_builder import build_drawing_ir
 from .block_attributes import summarize_block_attributes
 from .boundaries import check_boundary
+from .boundary_relations import check_boundary_relations
 from .result import error_result, ok_result
 
 
@@ -100,6 +101,7 @@ requires human review. Candidate counts are not counts of physical elements.
     identity = str(drawing.get("path") or drawing.get("name") or "unknown")
     candidates, unclassified, issues = [], [], []
     boundary_checks = []
+    valid_boundaries = {}
     boundary_budget = 100
 
     def issue(code: str, handles: list[str], message: str) -> None:
@@ -150,6 +152,7 @@ requires human review. Candidate counts are not counts of physical elements.
             else:
                 limitations = [w for w in limitations if w != "boundary_topology_not_verified"]
                 limitations.append("floor_area_and_holes_not_verified")
+                valid_boundaries[handle] = geometry
         block_name = geometry.get("block_name") or properties.get("block_name") or ""
         names = {"layer": str(entity.get("layer") or "0")}
         if shape == "block_reference" and block_name:
@@ -201,6 +204,20 @@ requires human review. Candidate counts are not counts of physical elements.
                 "boundary_check": deepcopy(boundary_check),
             })
 
+    relations = check_boundary_relations(valid_boundaries)
+    relations["excluded_contour_handles"] = [c["handle"] for c in boundary_checks
+                                              if c["status"] != "valid_simple_polygon"]
+    relations["entity_coverage_truncated"] = truncated
+    if relations["unverified_pairs"] or relations["excluded_contour_handles"] or truncated:
+        issue("boundary_relations_incomplete", [],
+              "Relations cover only eligible contours; inspect exclusions, pair limits and entity coverage.")
+    for relation in relations["items"]:
+        if relation["relation"] == "contains":
+            issue("nested_boundary_requires_review", [relation["outer_handle"], relation["inner_handle"]],
+                  "Nested contours may represent holes or unrelated objects; no area is subtracted.")
+        else:
+            issue("boundary_intersection_or_touch", relation["handles"],
+                  "Contour edges intersect or touch within tolerance; review their intended relationship.")
     annotations = summarize_block_attributes(entities)
     if annotations["partial_block_handles"] or annotations["not_captured_block_handles"]:
         issue("block_attributes_incomplete",
@@ -213,6 +230,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "schema_version": "architectural-analysis/v1",
         "block_annotations": annotations,
         "boundary_checks": boundary_checks,
+        "boundary_relations": relations,
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
