@@ -34,7 +34,9 @@ def test_native_mcp_architectural_report_and_readonly_annotations():
             assert wire["annotations"]["destructiveHint"] is False
             assert "project_id" in wire["inputSchema"]["properties"]
             assert "project_id" not in wire["inputSchema"].get("required", [])
-            result = await client.call_tool("analyze_architectural_drawing", {"entity_limit": 42})
+            assert "reference_lengths" in wire["inputSchema"]["properties"]
+            result = await client.call_tool("analyze_architectural_drawing", {"entity_limit": 42,
+                "reference_lengths": [{"handle": "A1", "length": 10, "units": "in", "source": "test"}]})
             return result.model_dump(by_alias=True, mode="json")
 
     with patch.object(server.understanding_architecture, "build_drawing_ir", return_value=snapshot) as build:
@@ -46,6 +48,7 @@ def test_native_mcp_architectural_report_and_readonly_annotations():
     assert report["candidates"][0]["handles"] == ["A1"]
     assert report["candidates"][0]["category"] == "wall"
     assert report["structural_design_ready"] is False
+    assert report["scale_reference_check"]["checks"][0]["reason"] == "drawing_units_unknown_or_unsupported"
 
 
 def test_native_mcp_passes_explicit_project_id():
@@ -56,4 +59,4 @@ def test_native_mcp_passes_explicit_project_id():
     with patch.object(server.understanding_architecture, "analyze_architectural_drawing",
                       return_value={"ok": True}) as analyze:
         asyncio.run(exercise())
-    analyze.assert_called_once_with(entity_limit=10000, project_id="native-test")
+    analyze.assert_called_once_with(entity_limit=10000, project_id="native-test", reference_lengths=None)

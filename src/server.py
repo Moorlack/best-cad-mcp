@@ -5209,7 +5209,8 @@ def polyline_get_segment_type(ctx: Context, handle: str,
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
 def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
-                                  project_id: Optional[str] = None) -> Dict[str, Any]:
+                                  project_id: Optional[str] = None,
+                                  reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5217,8 +5218,12 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     candidates, not confirmed building elements. Does not calculate loads or sizes.
     Optional project_id reads that project's current card and compares declared
     units; matching declarations do not verify scale or bind the DWG permanently.
+    Optional reference_lengths compares up to 20 LINEs with external controls:
+    each object has handle, positive length, units (mm/cm/m/in/ft) and source.
+    Agreement applies to those lines only; the whole drawing remains unverified.
     """
-    return understanding_architecture.analyze_architectural_drawing(entity_limit=entity_limit, project_id=project_id)
+    return understanding_architecture.analyze_architectural_drawing(
+        entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))

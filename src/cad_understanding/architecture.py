@@ -11,7 +11,7 @@ import math
 import re
 from collections import Counter
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.cad_database import CADDatabase
 
@@ -21,6 +21,7 @@ from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .project_card import get_project_card
 from .project_context import build_project_context
+from .scale_references import check_scale_references, validate_references
 from .result import error_result, ok_result
 
 
@@ -259,11 +260,17 @@ requires human review. Candidate counts are not counts of physical elements.
 
 def analyze_architectural_drawing(entity_limit: int = 10000,
                                   database: Optional[CADDatabase] = None,
-                                  project_id: Optional[str] = None) -> Dict[str, Any]:
+                                  project_id: Optional[str] = None,
+                                  reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
     project = None
+    if reference_lengths is not None:
+        try:
+            validate_references(reference_lengths)
+        except ValueError as exc:
+            return error_result(str(exc))
     if project_id is not None:
         project = get_project_card(project_id, database=database)
         if not project["ok"]:
@@ -273,6 +280,13 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         entity_limit=entity_limit, include_raw=True,
     )
     report = build_architectural_report(drawing_ir)
+    if reference_lengths is not None:
+        report["scale_reference_check"] = check_scale_references(drawing_ir, reference_lengths)
+        for check in report["scale_reference_check"]["checks"]:
+            if check["status"] != "agrees":
+                report["issues"].append({"code": "scale_reference_" + check["status"],
+                                         "handles": [check["reference"]["handle"]],
+                                         "message": check["reason"] or "Measured LINE length differs from the supplied reference."})
     if project is not None:
         context = build_project_context(report["drawing"], project["data"]["card"],
                                         project["data"]["readiness"])
