@@ -23,6 +23,7 @@ from .project_card import get_project_card
 from .project_context import build_project_context
 from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
+from .wall_networks import build_wall_networks
 from .result import error_result, ok_result
 
 
@@ -248,6 +249,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "boundary_checks": boundary_checks,
         "boundary_relations": relations,
         "wall_line_diagnostics": wall_lines,
+        "wall_networks": build_wall_networks(candidates, wall_lines),
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
