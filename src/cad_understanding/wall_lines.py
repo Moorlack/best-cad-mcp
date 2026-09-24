@@ -7,6 +7,17 @@ EPS = 1e-9
 MAX_LINES = 100
 
 
+def validate_gap_tolerance(value):
+    if value is None:
+        return
+    try:
+        valid = type(value) in (int, float) and math.isfinite(value) and value > 0
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError("wall_gap_tolerance must be a finite positive distance in drawing coordinate units.")
+
+
 def _cross(a, b, c):
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
@@ -48,7 +59,9 @@ def _pair(first, second):
     return "disjoint"
 
 
-def diagnose_wall_lines(candidates, entity_coverage_truncated=False):
+def diagnose_wall_lines(candidates, entity_coverage_truncated=False, gap_tolerance=None,
+                        drawing_units="unknown"):
+    validate_gap_tolerance(gap_tolerance)
     eligible, excluded = {}, []
     wall_candidates = [c for c in candidates if c["category"] == "wall"]
     for candidate in sorted(wall_candidates, key=lambda c: c["handles"][0]):
@@ -72,7 +85,11 @@ def diagnose_wall_lines(candidates, entity_coverage_truncated=False):
               "checked_pairs": 0, "different_plane_pairs": 0, "unverified_pairs": [],
               "items": [], "entity_coverage_truncated": entity_coverage_truncated,
               "relative_tolerance": EPS, "physical_walls_assembled": False,
-              "gaps_checked": False}
+              "gaps_checked": False,
+              "gap_search": {"requested": gap_tolerance is not None,
+                             "tolerance_drawing_units": gap_tolerance, "drawing_units": drawing_units,
+                             "disjoint_pairs_checked": 0, "candidates": [],
+                             "interpretation": "Nearby endpoints only; openings and intended separations are not defects."}}
     for ha, hb in combinations(eligible, 2):
         relation = _pair(eligible[ha], eligible[hb])
         if relation == "not_verified":
@@ -84,4 +101,19 @@ def diagnose_wall_lines(candidates, entity_coverage_truncated=False):
         elif relation != "disjoint":
             result["items"].append({"relation": relation, "handles": [ha, hb],
                                     "requires_architectural_review": True})
+        elif gap_tolerance is not None:
+            result["gap_search"]["disjoint_pairs_checked"] += 1
+            distance, ia, ib = min((math.dist(a, b), ia, ib)
+                                   for ia, a in enumerate(eligible[ha])
+                                   for ib, b in enumerate(eligible[hb]))
+            if math.isfinite(distance) and 0 < distance <= gap_tolerance:
+                result["gap_search"]["candidates"].append({
+                    "handles": [ha, hb], "distance_drawing_units": distance,
+                    "endpoints": [{"handle": ha, "endpoint": "start" if ia == 0 else "end",
+                                   "point": list(eligible[ha][ia])},
+                                  {"handle": hb, "endpoint": "start" if ib == 0 else "end",
+                                   "point": list(eligible[hb][ib])}],
+                    "status": "candidate", "requires_architectural_review": True})
+    result["gaps_checked"] = gap_tolerance is not None and not (
+        excluded or result["unverified_pairs"] or entity_coverage_truncated)
     return result

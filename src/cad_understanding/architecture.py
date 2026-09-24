@@ -22,7 +22,7 @@ from .boundary_relations import check_boundary_relations
 from .project_card import get_project_card
 from .project_context import build_project_context
 from .scale_references import check_scale_references, validate_references
-from .wall_lines import diagnose_wall_lines
+from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .result import error_result, ok_result
 
 
@@ -89,12 +89,13 @@ def _compatible(category: str, shape: str) -> bool:
     return shape in {"line", "open_polyline", "closed_polyline", "block_reference"}
 
 
-def build_architectural_report(drawing_ir: dict) -> dict:
+def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
 requires human review. Candidate counts are not counts of physical elements.
 """
+    validate_gap_tolerance(wall_gap_tolerance)
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
     section = drawing_ir.get("sections", {}).get("entities")
@@ -208,7 +209,10 @@ requires human review. Candidate counts are not counts of physical elements.
                 "boundary_check": deepcopy(boundary_check),
             })
 
-    wall_lines = diagnose_wall_lines(candidates, truncated)
+    wall_lines = diagnose_wall_lines(candidates, truncated, wall_gap_tolerance, drawing.get("units", "unknown"))
+    for gap in wall_lines["gap_search"]["candidates"]:
+        issue("wall_endpoint_gap_candidate", gap["handles"],
+              "Endpoints lie within the supplied tolerance; review whether the separation is intentional.")
     if wall_lines["excluded"] or wall_lines["unverified_pairs"] or truncated:
         issue("wall_line_diagnostics_incomplete", [],
               "Only eligible named wall LINE candidates were checked; inspect exclusions and coverage.")
@@ -271,11 +275,16 @@ requires human review. Candidate counts are not counts of physical elements.
 def analyze_architectural_drawing(entity_limit: int = 10000,
                                   database: Optional[CADDatabase] = None,
                                   project_id: Optional[str] = None,
-                                  reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                                  reference_lengths: Optional[List[Dict[str, Any]]] = None,
+                                  wall_gap_tolerance: Optional[float] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
     project = None
+    try:
+        validate_gap_tolerance(wall_gap_tolerance)
+    except ValueError as exc:
+        return error_result(str(exc))
     if reference_lengths is not None:
         try:
             validate_references(reference_lengths)
@@ -289,7 +298,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         database=database, rescan=False, sections=["entities", "blocks", "quality"],
         entity_limit=entity_limit, include_raw=True,
     )
-    report = build_architectural_report(drawing_ir)
+    report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance)
     if reference_lengths is not None:
         report["scale_reference_check"] = check_scale_references(drawing_ir, reference_lengths)
         for check in report["scale_reference_check"]["checks"]:

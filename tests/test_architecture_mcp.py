@@ -54,9 +54,11 @@ def test_native_mcp_architectural_report_and_readonly_annotations():
 def test_native_mcp_passes_explicit_project_id():
     async def exercise():
         async with Client(server.mcp, raise_exceptions=True, mode="2026-07-28") as client:
-            return await client.call_tool("analyze_architectural_drawing", {"project_id": "native-test"})
+            return await client.call_tool("analyze_architectural_drawing", {"project_id": "native-test",
+                                                                          "wall_gap_tolerance": 0.25})
 
     with patch.object(server.understanding_architecture, "analyze_architectural_drawing",
                       return_value={"ok": True}) as analyze:
         asyncio.run(exercise())
-    analyze.assert_called_once_with(entity_limit=10000, project_id="native-test", reference_lengths=None)
+    analyze.assert_called_once_with(entity_limit=10000, project_id="native-test", reference_lengths=None,
+                                    wall_gap_tolerance=0.25)

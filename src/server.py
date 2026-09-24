@@ -5210,7 +5210,8 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 )
 def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   project_id: Optional[str] = None,
-                                  reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                                  reference_lengths: Optional[List[Dict[str, Any]]] = None,
+                                  wall_gap_tolerance: Optional[float] = None) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5221,9 +5222,12 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     Optional reference_lengths compares up to 20 LINEs with external controls:
     each object has handle, positive length, units (mm/cm/m/in/ft) and source.
     Agreement applies to those lines only; the whole drawing remains unverified.
+    Optional positive wall_gap_tolerance searches nearby endpoints of disjoint
+    wall LINE candidates in drawing coordinate units; gaps are not auto-repaired.
     """
     return understanding_architecture.analyze_architectural_drawing(
-        entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths)
+        entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
+        wall_gap_tolerance=wall_gap_tolerance)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))

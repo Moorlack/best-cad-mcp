@@ -11,9 +11,9 @@ def line(handle, start, end, layer="A-WALL"):
             "geometry": {"start": start, "end": end}}
 
 
-def report(items):
+def report(items, tolerance=None):
     return build_architectural_report({"schema_version": "cad-ir/v2", "sections": {
-        "entities": {"items": items}}})
+        "entities": {"items": items}}}, wall_gap_tolerance=tolerance)
 
 
 @pytest.mark.parametrize("start,end,relation", [
@@ -83,3 +83,53 @@ def test_sqlite_ir_roundtrip_preserves_native_handles(tmp_path):
     result = analyze_architectural_drawing(database=db)
     assert "wall_line_duplicate" in result["warnings"]
     assert result["data"]["report"]["wall_line_diagnostics"]["items"][0]["handles"] == ["A1", "B1"]
+
+
+@pytest.mark.parametrize("start,end,tolerance,count", [
+    ([10.25, 0], [20, 0], 0.25, 1),
+    ([10.25, 0], [20, 0], 0.2, 0),
+    ([10.25, 0], [20, 0], None, 0),
+    ([10, 0], [20, 0], 0.25, 0),
+    ([5, -2], [5, 2], 10, 0),
+    ([10.125, 0.125], [20, 5], 0.25, 1),
+    ([10.25, 0, 3], [20, 0, 3], 5, 0),
+    ([5, 0.125], [5, 5], 0.25, 0),
+])
+def test_gap_search_requires_explicit_tolerance_and_disjoint_same_plane(start, end, tolerance, count):
+    r = report([line("A", [0, 0], [10, 0]), line("B", start, end)], tolerance)
+    d = r["wall_line_diagnostics"]
+    assert len(d["gap_search"]["candidates"]) == count
+    assert d["gap_search"]["requested"] is (tolerance is not None)
+    if count:
+        gap = d["gap_search"]["candidates"][0]
+        assert gap["handles"] == ["A", "B"]
+        assert gap["endpoints"][0] == {"handle": "A", "endpoint": "end", "point": [10, 0, 0]}
+        assert gap["distance_drawing_units"] <= tolerance
+        assert gap["requires_architectural_review"]
+    assert not r["structural_design_ready"]
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "0.25", float("inf"), float("nan"), 10**1000])
+def test_invalid_gap_tolerance_returns_error_without_scanning(value):
+    result = analyze_architectural_drawing(wall_gap_tolerance=value)
+    assert result["ok"] is False
+
+
+def test_gap_search_limit_does_not_claim_complete_coverage():
+    items = [line(f"L{i:03}", [0, i], [10, i]) for i in range(101)]
+    d = report(items, 0.25)["wall_line_diagnostics"]
+    assert d["gap_search"]["requested"]
+    assert d["gaps_checked"] is False
+    assert len(d["excluded"]) == 1
+
+
+def test_gap_sqlite_pipeline_reports_distance_and_preserves_geometry(tmp_path):
+    db = CADDatabase(str(tmp_path / "gap.db"))
+    for h, start, end in [("A", [0, 0, 0], [10, 0, 0]), ("B", [10.25, 0, 0], [20, 0, 0])]:
+        db.upsert_entity(h, "Line", "AcDbLine", layer="A-WALL", geometry={"start": start, "end": end})
+    before = deepcopy(db.get_entity("B"))
+    r = analyze_architectural_drawing(database=db, wall_gap_tolerance=0.5)
+    assert "wall_endpoint_gap_candidate" in r["warnings"]
+    gap = r["data"]["report"]["wall_line_diagnostics"]["gap_search"]["candidates"][0]
+    assert gap["distance_drawing_units"] == 0.25
+    assert db.get_entity("B") == before
