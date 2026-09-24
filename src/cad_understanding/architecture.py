@@ -22,6 +22,7 @@ from .boundary_relations import check_boundary_relations
 from .project_card import get_project_card
 from .project_context import build_project_context
 from .scale_references import check_scale_references, validate_references
+from .wall_lines import diagnose_wall_lines
 from .result import error_result, ok_result
 
 
@@ -207,6 +208,14 @@ requires human review. Candidate counts are not counts of physical elements.
                 "boundary_check": deepcopy(boundary_check),
             })
 
+    wall_lines = diagnose_wall_lines(candidates, truncated)
+    if wall_lines["excluded"] or wall_lines["unverified_pairs"] or truncated:
+        issue("wall_line_diagnostics_incomplete", [],
+              "Only eligible named wall LINE candidates were checked; inspect exclusions and coverage.")
+    for relation in wall_lines["items"]:
+        if relation["relation"] in {"duplicate", "overlap", "intersection"}:
+            issue("wall_line_" + relation["relation"], relation["handles"],
+                  "Review the relationship of these wall candidates; no physical wall or repair is inferred.")
     relations = check_boundary_relations(valid_boundaries)
     relations["excluded_contour_handles"] = [c["handle"] for c in boundary_checks
                                               if c["status"] != "valid_simple_polygon"]
@@ -234,6 +243,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "block_annotations": annotations,
         "boundary_checks": boundary_checks,
         "boundary_relations": relations,
+        "wall_line_diagnostics": wall_lines,
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
