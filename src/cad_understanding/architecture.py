@@ -19,6 +19,8 @@ from .ir_builder import build_drawing_ir
 from .block_attributes import summarize_block_attributes
 from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
+from .project_card import get_project_card
+from .project_context import build_project_context
 from .result import error_result, ok_result
 
 
@@ -256,15 +258,28 @@ requires human review. Candidate counts are not counts of physical elements.
 
 
 def analyze_architectural_drawing(entity_limit: int = 10000,
-                                  database: Optional[CADDatabase] = None) -> Dict[str, Any]:
+                                  database: Optional[CADDatabase] = None,
+                                  project_id: Optional[str] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
+    project = None
+    if project_id is not None:
+        project = get_project_card(project_id, database=database)
+        if not project["ok"]:
+            return project
     drawing_ir = build_drawing_ir(
         database=database, rescan=False, sections=["entities", "blocks", "quality"],
         entity_limit=entity_limit, include_raw=True,
     )
     report = build_architectural_report(drawing_ir)
+    if project is not None:
+        context = build_project_context(report["drawing"], project["data"]["card"],
+                                        project["data"]["readiness"])
+        report["project_context"] = context
+        for warning in context["warnings"]:
+            report["issues"].append({"code": warning, "handles": [],
+                                     "message": "Review project_context unit declarations; no conversion or scale confirmation was performed."})
     return ok_result(
         "Built architectural candidate inventory; engineering interpretation remains unverified.",
         data={"report": report},
