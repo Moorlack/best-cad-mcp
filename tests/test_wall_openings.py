@@ -112,3 +112,43 @@ def test_native_mcp_passes_opening_width():
                       return_value={"ok": True}) as arch:
         asyncio.run(exercise())
     assert arch.call_args.kwargs["wall_opening_max_width"] == 48
+
+
+def _door(h, rotation=0.0, x_scale=1.0, normal=(0, 0, 1)):
+    d = block(h, "DOOR-36", [100, 0, 0], [100, -30], [136, 8])
+    d["geometry"].update({"rotation": rotation, "x_scale": x_scale, "y_scale": 1.0, "normal": list(normal)})
+    return d
+
+
+def _door_items(door):
+    items = [e for e in ITEMS if e["handle"] not in {"D1", "D2", "N1"}] + [door]
+    r = build_architectural_report(snapshot(items), wall_thickness_range=[4, 12], wall_opening_max_width=48)
+    return next(o for o in r["wall_segment_candidates"]["openings"]["openings"] if o["handles"] == [door["handle"]])
+
+
+def test_gap_width_and_block_placement_along_wall():
+    item = _door_items(_door("D1"))
+    assert item["opening_width_candidate_drawing_units"] == pytest.approx(36)
+    assert item["width_source"] == "distance_between_face_ends"
+    p = item["block_placement"]
+    assert p["reference"] == "gap" and p["axis_length"] == pytest.approx(36)
+    assert p["offset_from_axis"] == pytest.approx(-4) and p["position_along_axis"] == pytest.approx(0)
+    assert p["within_axis_span"] and not p["mirrored"]
+    assert p["orientation"] == "along_wall" and p["rotation_relative_to_wall_degrees"] == pytest.approx(0)
+
+
+@pytest.mark.parametrize("rotation,x_scale,normal,orientation,mirrored", [
+    (math.pi / 2, 1.0, (0, 0, 1), "across_wall", False),
+    (math.pi, -1.0, (0, 0, 1), "along_wall", True),
+    (math.radians(30), 1.0, (0, 0, 1), "oblique", False),
+    (0.0, 1.0, (0, 0, -1), "not_evaluated_non_plan_normal_or_missing_rotation", False),
+])
+def test_block_orientation_and_mirroring(rotation, x_scale, normal, orientation, mirrored):
+    p = _door_items(_door("D1", rotation, x_scale, normal))["block_placement"]
+    assert p["orientation"] == orientation and p["mirrored"] is mirrored
+
+
+def test_non_block_openings_have_no_placement():
+    r = report(wall_opening_max_width=48)
+    window = next(o for o in r["wall_segment_candidates"]["openings"]["openings"] if o["handles"] == ["N1"])
+    assert "block_placement" not in window and "opening_width_candidate_drawing_units" not in window
