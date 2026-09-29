@@ -10,6 +10,7 @@ from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
 from .line_networks import build_line_networks
+from .axis_junctions import validate_junction_tolerance
 from .line_pairs import find_parallel_pairs, validate_angle_tolerance, validate_separation_range
 from .scale_references import check_scale_references, validate_references
 
@@ -32,13 +33,14 @@ def _selection(values, name):
 
 def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=None,
                           reference_lengths=None, parallel_separation_range=None,
-                          parallel_angle_tolerance_degrees=None):
+                          parallel_angle_tolerance_degrees=None, junction_tolerance=None):
     """Pure Python entry point. Filters intersect; names are exact and never semantic."""
     _selection(handles, 'handles')
     _selection(layers, 'layers')
     validate_gap_tolerance(gap_tolerance)
     validate_separation_range(parallel_separation_range)
     validate_angle_tolerance(parallel_angle_tolerance_degrees)
+    validate_junction_tolerance(junction_tolerance)
     if reference_lengths is not None:
         validate_references(reference_lengths)
     if drawing_ir.get('schema_version') != 'cad-ir/v2':
@@ -105,7 +107,8 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
                               'Declared units do not verify scale. Snapshot freshness must be established by a scan.']}
     if parallel_separation_range is not None:
         result['parallel_line_pairs'] = find_parallel_pairs(
-            lines, parallel_separation_range, parallel_angle_tolerance_degrees, incomplete)
+            lines, parallel_separation_range, parallel_angle_tolerance_degrees, incomplete,
+            junction_tolerance=junction_tolerance, include_junctions=True)
     if reference_lengths is not None:
         scoped = deepcopy(drawing_ir)
         scoped['sections']['entities']['items'] = selected
@@ -115,7 +118,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
 
 def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_tolerance=None,
                      reference_lengths=None, parallel_separation_range=None,
-                     parallel_angle_tolerance_degrees=None, database=None):
+                     parallel_angle_tolerance_degrees=None, junction_tolerance=None, database=None):
     # Lazy imports keep the pure entry point independent of SQLite/AutoCAD/MCP runtime.
     from .ir_builder import build_drawing_ir
     from .result import error_result, ok_result
@@ -128,12 +131,14 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
         validate_gap_tolerance(gap_tolerance)
         validate_separation_range(parallel_separation_range)
         validate_angle_tolerance(parallel_angle_tolerance_degrees)
+        validate_junction_tolerance(junction_tolerance)
         if reference_lengths is not None:
             validate_references(reference_lengths)
         snapshot = build_drawing_ir(database=database, rescan=False, sections=['entities'],
                                     entity_limit=entity_limit, include_raw=True)
         report = build_geometry_report(snapshot, handles, layers, gap_tolerance, reference_lengths,
-                                       parallel_separation_range, parallel_angle_tolerance_degrees)
+                                       parallel_separation_range, parallel_angle_tolerance_degrees,
+                                       junction_tolerance)
     except ValueError as exc:
         return error_result(str(exc))
     from .snapshot_freshness import apply_to_report, check_snapshot_freshness

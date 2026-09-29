@@ -5,6 +5,7 @@ import math
 from collections import Counter
 from itertools import combinations
 
+from .axis_junctions import find_axis_junctions
 from .line_geometry import EPS, eligible_lines
 
 DEFAULT_ANGLE_TOLERANCE_DEGREES = 0.01
@@ -94,7 +95,8 @@ def _measure(first, second, angle_tolerance):
 
 def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=None,
                         entity_coverage_truncated=False, id_prefix="line_pair_",
-                        review_key="requires_review", scope="selected_LINE_entities"):
+                        review_key="requires_review", scope="selected_LINE_entities",
+                        junction_tolerance=None, include_junctions=False):
     """Pairs of parallel LINEs whose offset lies in an explicit distance range.
 
     The result is geometric evidence only: the same line may pair with several
@@ -125,7 +127,12 @@ def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=No
         pair["shared_line_handles"] = sorted(h for h in pair["handles"] if usage[h] > 1)
         pair["ambiguous"] = bool(pair["shared_line_handles"])
     complete = not (excluded or entity_coverage_truncated)
-    return {"scope": scope, "requested": True,
+    extra = {}
+    if include_junctions:
+        extra["pair_junctions"] = find_axis_junctions(
+            [{"id": p["id"], "start": p["midline_wcs"][0], "end": p["midline_wcs"][1],
+              "width": p["separation_max"]} for p in pairs], junction_tolerance)
+    return {**extra,"scope": scope, "requested": True,
             "separation_range_drawing_units": [low, high],
             "angle_tolerance_degrees": tolerance,
             "eligible_lines": len(eligible), "excluded": excluded,

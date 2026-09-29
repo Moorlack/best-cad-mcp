@@ -21,7 +21,9 @@
 - reference_lengths: прежний контракт handle/length/units/source (до 20 LINE);
 - parallel_separation_range: [min, max] — пары параллельных LINE на этом расстоянии
   (раздел `parallel_line_pairs`), parallel_angle_tolerance_degrees — 0–5°,
-  по умолчанию 0.01°. Подробности: [wall-segments.md](wall-segments.md).
+  по умолчанию 0.01°. Подробности: [wall-segments.md](wall-segments.md);
+- junction_tolerance: допуск стыков осей пар (`pair_junctions`: corner/T/crossing/
+  collinear_gap/parallel_overlap), по умолчанию — большая ширина пары.
 
 Ответ `geometry-analysis/v1`: выбранные объекты и покрытие, диагностика LINE,
 группы контактов, зазоры между ними, проверки полилиний и отношения контуров,
@@ -39,8 +41,8 @@
 
 ## Общая реализация и совместимость
 
-`line_geometry.py`, `line_networks.py` и `line_pairs.py` содержат единственную
-реализацию диагностики, связных компонент и параллельных пар; отбор допустимых
+`line_geometry.py`, `line_networks.py`, `line_pairs.py` и `axis_junctions.py` содержат
+единственную реализацию диагностики, связных компонент, параллельных пар и стыков осей; отбор допустимых
 LINE общий (`eligible_lines`). `wall_pairs.py` — адаптер кандидатов участков стен. `wall_lines.py` и `wall_networks.py` стали
 адаптерами архитектурного отбора. Старые поля, предупреждения и ID групп
 сохранены; новый инструмент не требует переименовать слои в WALL.

@@ -24,6 +24,7 @@ from .project_context import build_project_context
 from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
+from .axis_junctions import validate_junction_tolerance
 from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
 
@@ -92,7 +93,7 @@ def _compatible(category: str, shape: str) -> bool:
 
 
 def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
-                               wall_thickness_range=None) -> dict:
+                               wall_thickness_range=None, wall_junction_tolerance=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
@@ -100,6 +101,7 @@ requires human review. Candidate counts are not counts of physical elements.
 """
     validate_gap_tolerance(wall_gap_tolerance)
     validate_wall_thickness_range(wall_thickness_range)
+    validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
     section = drawing_ir.get("sections", {}).get("entities")
@@ -224,7 +226,8 @@ requires human review. Candidate counts are not counts of physical elements.
         if relation["relation"] in {"duplicate", "overlap", "intersection"}:
             issue("wall_line_" + relation["relation"], relation["handles"],
                   "Review the relationship of these wall candidates; no physical wall or repair is inferred.")
-    wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated)
+    wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated,
+                                                  wall_junction_tolerance)
     for segment in wall_segments["segments"]:
         if segment["ambiguous"]:
             issue("wall_segment_ambiguous_face", segment["shared_line_handles"],
@@ -288,7 +291,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   project_id: Optional[str] = None,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
                                   wall_gap_tolerance: Optional[float] = None,
-                                  wall_thickness_range: Optional[List[float]] = None) -> Dict[str, Any]:
+                                  wall_thickness_range: Optional[List[float]] = None,
+                                  wall_junction_tolerance: Optional[float] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
@@ -296,6 +300,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     try:
         validate_gap_tolerance(wall_gap_tolerance)
         validate_wall_thickness_range(wall_thickness_range)
+        validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
     except ValueError as exc:
         return error_result(str(exc))
     if reference_lengths is not None:
@@ -312,7 +317,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         entity_limit=entity_limit, include_raw=True,
     )
     report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance,
-                                        wall_thickness_range=wall_thickness_range)
+                                        wall_thickness_range=wall_thickness_range,
+                                        wall_junction_tolerance=wall_junction_tolerance)
     from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
     freshness = check_snapshot_freshness(database)
     code = apply_to_report(report, freshness)
