@@ -91,6 +91,7 @@ class CADController:
         self.doc = None
         self._pinned_pid = None
         self._last_connect_error = None
+        self._known_instances = {}
         self._initialized = True
         logger.info("CAD控制器已初始化")
 
@@ -128,8 +129,31 @@ class CADController:
         return list(dict.fromkeys(candidates))
 
     def running_instances(self) -> List[Dict[str, Any]]:
-        from src.autocad_instances import list_instances
-        return list_instances(self._autocad_prog_id_candidates())
+        """Fresh ROT entries plus instances seen earlier whose COM references still answer.
+
+        Live, the ROT kept only one of two AutoCAD 2025 registrations shortly after both
+        appeared; a held reference to the other instance keeps working, so it is remembered.
+        """
+        from src.autocad_instances import _documents_of, acad_process_pids, list_instances
+        fresh = list_instances(self._autocad_prog_id_candidates())
+        alive = acad_process_pids()
+        known = getattr(self, "_known_instances", None)
+        if known is None:
+            known = self._known_instances = {}
+        for inst in fresh:
+            if inst.get("pid") is not None:
+                known[inst["pid"]] = inst
+        merged = {inst.get("pid"): inst for inst in fresh}
+        for pid, inst in list(known.items()):
+            if pid in merged:
+                continue
+            if alive is not None and pid not in alive:
+                known.pop(pid, None)  # the process has closed
+                continue
+            documents, error = _documents_of(inst["app"])
+            merged[pid] = {**inst, "documents": documents or inst.get("documents", []), "error": error,
+                           "source": "remembered_reference"}
+        return list(merged.values())
 
     def select_instance(self, pid: Optional[int] = None, document_path: Optional[str] = None,
                         clear: bool = False) -> Dict[str, Any]:

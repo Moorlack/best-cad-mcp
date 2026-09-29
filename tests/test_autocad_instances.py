@@ -118,3 +118,20 @@ def test_tasklist_parsing():
 def test_pinned_process_running_but_unreachable_is_explained():
     with pytest.raises(RuntimeError, match="running but not reachable through COM"):
         choose_instance([ACAD], pinned_pid=101, process_pids={101, 202})
+
+
+def test_remembered_instances_survive_rot_changes(ctrl, monkeypatch):
+    from src import autocad_instances
+    ctrl._known_instances = {}
+    live_docs = SimpleNamespace(Count=1, Item=lambda i: SimpleNamespace(FullName=r"C:\Tests\TEST2.dwg", Name="TEST2.dwg"))
+    acad = {**ACAD, "app": SimpleNamespace(tag="acad", Documents=live_docs)}
+    rot = [[CIVIL, acad], [CIVIL]]  # second enumeration: AutoCAD vanished from the ROT
+    monkeypatch.setattr(autocad_instances, "list_instances", lambda prog_ids: rot.pop(0) if rot else [CIVIL])
+    monkeypatch.setattr(CADController, "_autocad_prog_id_candidates", staticmethod(lambda: []))
+    monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {101, 202})
+    assert {i["pid"] for i in ctrl.running_instances()} == {101, 202}
+    again = {i["pid"]: i for i in ctrl.running_instances()}
+    assert again[202]["source"] == "remembered_reference" and again[202]["documents"] == [r"C:\Tests\TEST2.dwg"]
+    assert ctrl.select_instance(document_path=r"C:\Tests\TEST2.dwg")["pinned_pid"] == 202
+    monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {101})  # AutoCAD closed
+    assert {i["pid"] for i in ctrl.running_instances()} == {101}
