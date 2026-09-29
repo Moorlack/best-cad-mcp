@@ -16,7 +16,7 @@
 - `consistent_with_scan` — всё совпало. Перемещения и правки свойств
   существующих объектов этот слепок **не** меняют, поэтому это не доказательство
   актуальности; предупреждение `snapshot_existing_object_edits_not_detected`.
-- `stale` — причина `active_document_differs`, `model_space_object_count_changed`
+- `stale` — причина `active_document_differs`, `model_space_object_count_changed`,
   `model_space_last_entity_changed` или `database_objects_created_since_scan`; предупреждение/issue `snapshot_stale`.
 - `unverified` — нет слепка (старый, усечённый или неполный scan), AutoCAD
   недоступен или слепок неполон; прежнее предупреждение `snapshot_freshness_unverified`.
