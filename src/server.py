@@ -483,7 +483,7 @@ def _humanize_tool_name(name: str) -> str:
 
 def _registration_category(name: str) -> str:
     if name in {
-        "analyze_architectural_drawing",
+        "analyze_architectural_drawing", "analyze_geometry",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -977,6 +977,7 @@ from src.cad_understanding import plan as understanding_plan
 from src.cad_understanding import resources as understanding_resources
 from src.cad_understanding import semantic_graph as understanding_semantic
 from src.cad_understanding import architecture as understanding_architecture
+from src.cad_understanding import geometry_analysis as understanding_geometry
 from src.cad_understanding import project_card as engineering_project
 from src.visual_selftest import check_visual_pipeline as run_visual_pipeline_check
 from src.cad_understanding import validators as understanding_validators
@@ -3702,7 +3703,7 @@ def _registered_tools():
 
 def _tool_category(name: str) -> str:
     if name in {
-        "analyze_architectural_drawing",
+        "analyze_architectural_drawing", "analyze_geometry",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -5208,6 +5209,23 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
+def analyze_geometry(ctx: Context, entity_limit: int = 10000,
+                     handles: Optional[List[str]] = None, layers: Optional[List[str]] = None,
+                     gap_tolerance: Optional[float] = None,
+                     reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Read-only geometry checks for any domain, independent of layer naming conventions.
+
+    Run a fresh scan first. Exact handles/layers filters intersect; omitted filters
+    select all cached entities. Checks horizontal LINE contacts, groups and optional
+    endpoint gaps in drawing units, straight WCS contours and block annotations.
+    Optional external reference_lengths checks selected LINE lengths only.
+    Inspect exclusions and coverage; no automatic repair or engineering conclusions.
+    """
+    return understanding_geometry.analyze_geometry(entity_limit=entity_limit, handles=handles,
+        layers=layers, gap_tolerance=gap_tolerance, reference_lengths=reference_lengths)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
 def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   project_id: Optional[str] = None,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
