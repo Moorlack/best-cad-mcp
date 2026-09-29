@@ -3,10 +3,10 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "AECMB_PRODUCT=AutoCAD"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title AutoCAD MCP setup v2026.09.29.03
+title AutoCAD MCP setup v2026.09.29.04
 
 echo.
-echo AutoCAD MCP setup v2026.09.29.03
+echo AutoCAD MCP setup v2026.09.29.04
 echo This script configures only the selected product without removing or replacing unrelated MCP servers.
 echo.
 
@@ -67,7 +67,7 @@ $StepNumber = 0
 $script:BridgeProduct = 'AutoCAD'
 $script:BridgeProductLabel = 'AutoCAD'
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.09.29.03'
+$script:InstallerVersion = '2026.09.29.04'
 $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20AutoCAD.cmd'
 
 function Write-Ok([string]$Message) {
@@ -547,8 +547,8 @@ function Get-AutoCadUpdateStatus {
 function Write-AutoCadUpdateStatus($Status) {
     $short = { param($sha) if ($sha) { $sha.Substring(0, 7) } else { '?' } }
     switch ($Status.State) {
-        'UpToDate' { Write-Ok "No updates found: installed AutoCAD MCP $(& $short $Status.Local) is the latest fork/master. Every action below only repairs and re-verifies." }
-        'UpdateAvailable' { Write-Host "[UPDATE] AutoCAD MCP update available: installed $(& $short $Status.Local) -> latest $(& $short $Status.Remote). Any Install/Repair action or the server-only update applies it." -ForegroundColor Cyan }
+        'UpToDate' { Write-Ok "Installed AutoCAD MCP $(& $short $Status.Local) is the latest fork/master. Every action below only repairs." }
+        'UpdateAvailable' { Write-Host "[UPDATE] AutoCAD MCP update available. Any Install/Repair action or the server-only update applies it." -ForegroundColor Magenta }
         'LocalAhead' { Write-WarningMessage "Installed AutoCAD MCP $(& $short $Status.Local) is newer than fork/master $(& $short $Status.Remote). No update will be downloaded; actions only repair." }
         'NotInstalled' { Write-Info 'AutoCAD MCP is not installed yet; an Install action downloads the latest fork/master.' }
         default { Write-WarningMessage "Could not check for AutoCAD MCP updates: $($Status.Detail). Actions still try to update." }
@@ -556,13 +556,21 @@ function Write-AutoCadUpdateStatus($Status) {
     if ($Status.State -ne 'Unknown' -and $Status.Detail) { Write-Info "Note: $($Status.Detail)." }
 }
 
-function Get-UpdateSuffix($Status) {
+function Get-UpdateNote($Status) {
+    # Second menu line under each action; $null when there is nothing to say.
+    $short = { param($sha) if ($sha) { $sha.Substring(0, 7) } else { '?' } }
     switch ($Status.State) {
-        'UpToDate' { return ' [no updates found: repair only]' }
-        'LocalAhead' { return ' [no updates found: repair only]' }
-        'UpdateAvailable' { return ' [includes update]' }
-        default { return '' }
+        'UpdateAvailable' { return [pscustomobject]@{ Text = "Updates found: $(& $short $Status.Local) -> $(& $short $Status.Remote)"; Color = 'Magenta' } }
+        'UpToDate' { return [pscustomobject]@{ Text = 'Updates not found'; Color = 'DarkGray' } }
+        'LocalAhead' { return [pscustomobject]@{ Text = 'Updates not found'; Color = 'DarkGray' } }
+        'Unknown' { return [pscustomobject]@{ Text = 'Update check unavailable; the latest version is still pulled'; Color = 'Yellow' } }
+        default { return $null }
     }
+}
+
+function Write-MenuOption([string]$Number, [string]$Label, [string]$Color, $Note) {
+    Write-Host "$Number - $Label" -ForegroundColor $Color
+    if ($Note) { Write-Host "    $($Note.Text)" -ForegroundColor $Note.Color }
 }
 
 function Select-TargetClient {
@@ -576,16 +584,17 @@ function Select-TargetClient {
     $claudeConfigured = Test-ClaudeBridgeConfigured
     $antigravityConfigured = Test-AntigravityBridgeConfigured
 
-    $updateSuffix = ''
-    $installSuffix = ''
+    $updateNote = $null
+    $noUpdates = $false
     if ($script:BridgeProduct -eq 'AutoCAD') {
         Write-Info 'Checking the installed AutoCAD MCP version against fork/master...'
         $script:AutoCadUpdateStatus = Get-AutoCadUpdateStatus
         Write-AutoCadUpdateStatus $script:AutoCadUpdateStatus
-        $updateSuffix = Get-UpdateSuffix $script:AutoCadUpdateStatus
-        # A new client registration reuses the shared server code.
-        $installSuffix = if ($script:AutoCadUpdateStatus.State -in @('UpToDate', 'LocalAhead')) { ' [no code updates: registers this client only]' } else { $updateSuffix }
+        $updateNote = Get-UpdateNote $script:AutoCadUpdateStatus
+        $noUpdates = $script:AutoCadUpdateStatus.State -in @('UpToDate', 'LocalAhead')
     }
+    # Nothing to download means a configured client can only be repaired.
+    $repairVerb = if ($noUpdates) { 'Repair' } else { 'Repair or extend' }
 
     Write-Host ''
     Write-Host 'Available actions:'
@@ -593,8 +602,8 @@ function Select-TargetClient {
     $options = [System.Collections.Generic.List[object]]::new()
     $nextNumber = 1
 
-    $codexLabel = if ($codexConfigured) { "Repair or extend $($script:BridgeProductLabel) bridge for Codex$updateSuffix" } else { "Install $($script:BridgeProductLabel) bridge for Codex$installSuffix" }
-    Write-Host "$nextNumber - $codexLabel" -ForegroundColor Green
+    $codexLabel = if ($codexConfigured) { "$repairVerb $($script:BridgeProductLabel) bridge for Codex" } else { "Install $($script:BridgeProductLabel) bridge for Codex" }
+    Write-MenuOption $nextNumber $codexLabel 'Green' $updateNote
     $options.Add([pscustomobject]@{
         Number = [string]$nextNumber
         Client = 'Codex'
@@ -602,8 +611,8 @@ function Select-TargetClient {
     })
     $nextNumber++
 
-    $antigravityLabel = if ($antigravityConfigured) { "Repair or extend $($script:BridgeProductLabel) bridge for Google Antigravity$updateSuffix" } else { "Install $($script:BridgeProductLabel) bridge for Google Antigravity$installSuffix" }
-    Write-Host "$nextNumber - $antigravityLabel" -ForegroundColor Green
+    $antigravityLabel = if ($antigravityConfigured) { "$repairVerb $($script:BridgeProductLabel) bridge for Google Antigravity" } else { "Install $($script:BridgeProductLabel) bridge for Google Antigravity" }
+    Write-MenuOption $nextNumber $antigravityLabel 'Green' $updateNote
     $options.Add([pscustomobject]@{
         Number = [string]$nextNumber
         Client = 'Antigravity'
@@ -611,8 +620,8 @@ function Select-TargetClient {
     })
     $nextNumber++
 
-    $claudeLabel = if ($claudeConfigured) { "Repair or extend $($script:BridgeProductLabel) bridge for Claude$updateSuffix" } else { "Install $($script:BridgeProductLabel) bridge for Claude$installSuffix" }
-    Write-Host "$nextNumber - $claudeLabel" -ForegroundColor Green
+    $claudeLabel = if ($claudeConfigured) { "$repairVerb $($script:BridgeProductLabel) bridge for Claude" } else { "Install $($script:BridgeProductLabel) bridge for Claude" }
+    Write-MenuOption $nextNumber $claudeLabel 'Green' $updateNote
     $options.Add([pscustomobject]@{
         Number = [string]$nextNumber
         Client = 'Claude'
@@ -625,13 +634,13 @@ function Select-TargetClient {
     $autoCadInstalled = ($script:BridgeProduct -eq 'AutoCAD') -and
         (Test-Path -LiteralPath (Join-Path $env:ProgramData 'AECModelBridge\autocad\.git'))
     if ($autoCadInstalled) {
-        $serverLabel = if ($script:AutoCadUpdateStatus.State -in @('UpToDate', 'LocalAhead')) {
-            'Re-verify the shared AutoCAD MCP server (no updates found: repair only; client settings unchanged)'
+        $serverLabel = if ($noUpdates) {
+            'Repair the shared AutoCAD MCP server (all clients; client settings unchanged)'
         }
         else {
-            "Update only the shared AutoCAD MCP server (all clients; client settings unchanged)$updateSuffix"
+            'Update only the shared AutoCAD MCP server (all clients; client settings unchanged)'
         }
-        Write-Host "$nextNumber - $serverLabel" -ForegroundColor Cyan
+        Write-MenuOption $nextNumber $serverLabel 'Cyan' $updateNote
         $options.Add([pscustomobject]@{
             Number = [string]$nextNumber
             Client = $null
