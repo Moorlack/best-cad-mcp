@@ -3007,3 +3007,20 @@ class TestBugDetection(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+def test_create_block_does_not_duplicate_source_entities_in_model_space(monkeypatch):
+    from unittest.mock import MagicMock
+    from src import cad_controller
+    from src.cad_controller import CADController
+
+    ctrl = object.__new__(CADController)
+    ctrl.acad = MagicMock()
+    ctrl.acad.Documents.Count = 1
+    ctrl.doc = ctrl.acad.ActiveDocument
+    monkeypatch.setattr(CADController, "_ensure_connected", lambda self: None)
+    entity = MagicMock()
+    monkeypatch.setattr(cad_controller.win32com.client, "VARIANT", lambda kind, items: items)
+    ctrl.create_block("DOOR-TEST", (0, 0, 0), [entity])
+    entity.Copy.assert_not_called()
+    ctrl.doc.CopyObjects.assert_called_once()

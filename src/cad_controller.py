@@ -1970,14 +1970,9 @@ class CADController:
                      entities: List[Any] = None) -> Any:
         pt = to_variant_point(*base_pt)
         block = self.doc.Blocks.Add(pt, name)
-        # Copy entities into block
+        # Copy entities into the block definition; the source entities stay in
+        # model space unchanged (a per-entity Copy() here used to leave duplicates).
         if entities:
-            entity_handles = [e.Handle for e in entities]
-            for h in entity_handles:
-                ent = self.doc.HandleToObject(h)
-                ent.Copy()
-                # Move into block definition... this is complex in COM
-                # Use CopyObjects for proper block creation
             try:
                 objs = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, entities)
                 self.doc.CopyObjects(objs, block, None)
