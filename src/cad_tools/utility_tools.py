@@ -309,7 +309,9 @@ def check_runtime_environment(check_autocad: bool = False,
     if check_autocad:
         try:
             autocad_ok = bool(ctrl.connect(visible=True))
-            detail = "connected" if autocad_ok else "AutoCAD COM connection failed"
+            detail = "connected" if autocad_ok else (
+                "AutoCAD COM connection failed" + (f": {ctrl._last_connect_error}"
+                                                   if getattr(ctrl, "_last_connect_error", None) else ""))
         except Exception as exc:
             autocad_ok = False
             detail = f"{type(exc).__name__}: {exc}"
@@ -1523,3 +1525,28 @@ def get_tool_help(tool_name: Optional[str] = None) -> str:
     lines.append(f"\n{'=' * 60}")
     lines.append(f"共 {total} 个工具，覆盖 AutoCAD 的完整功能。")
     return "\n".join(lines)
+
+
+def list_autocad_instances() -> Dict[str, Any]:
+    """Running AutoCAD processes (verticals like Civil 3D included) and their open drawings."""
+    from src.autocad_instances import describe
+    try:
+        instances = describe(ctrl.running_instances())
+    except Exception as exc:
+        return {"ok": False, "message": f"Could not enumerate AutoCAD instances: {exc}", "instances": []}
+    return {"ok": True, "instances": instances, "count": len(instances),
+            "pinned_pid": getattr(ctrl, "_pinned_pid", None),
+            "message": ("Several instances are running; select one with select_autocad_instance before "
+                        "live work." if len(instances) > 1 else "At most one AutoCAD instance is running.")}
+
+
+def select_autocad_instance(pid: Optional[int] = None, document_path: Optional[str] = None,
+                            clear: bool = False) -> Dict[str, Any]:
+    """Pin this MCP session to one AutoCAD process by pid or by an open drawing path."""
+    if not clear and pid is None and not document_path:
+        return {"ok": False, "message": "Pass pid or document_path (see list_autocad_instances), or clear=True."}
+    try:
+        result = ctrl.select_instance(pid=pid, document_path=document_path, clear=clear)
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, **result}

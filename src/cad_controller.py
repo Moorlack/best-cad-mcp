@@ -59,8 +59,10 @@ def require_document(func):
     def wrapper(self, *args, **kwargs):
         self._ensure_connected()
         if self.acad is None:
+            detail = getattr(self, "_last_connect_error", None)
             return {"success": False,
-                    "message": "Unable to connect to AutoCAD. Make sure AutoCAD is running."}
+                    "message": "Unable to connect to AutoCAD. Make sure AutoCAD is running."
+                    + (f" {detail}" if detail else "")}
         if self.acad.Documents.Count == 0:
             return {"success": False,
                     "message": "No drawing is open. Create or open a drawing first."}
@@ -87,6 +89,8 @@ class CADController:
             return
         self.acad = None
         self.doc = None
+        self._pinned_pid = None
+        self._last_connect_error = None
         self._initialized = True
         logger.info("CAD控制器已初始化")
 
@@ -123,8 +127,39 @@ class CADController:
                     pass
         return list(dict.fromkeys(candidates))
 
+    def running_instances(self) -> List[Dict[str, Any]]:
+        from src.autocad_instances import list_instances
+        return list_instances(self._autocad_prog_id_candidates())
+
+    def select_instance(self, pid: Optional[int] = None, document_path: Optional[str] = None,
+                        clear: bool = False) -> Dict[str, Any]:
+        """Pin later connections to one AutoCAD process (by pid or by an open drawing)."""
+        from src.autocad_instances import choose_instance, describe
+        if clear:
+            self._pinned_pid = None
+            return {"success": True, "pinned_pid": None}
+        chosen = choose_instance(self.running_instances(), pid, document_path)
+        if chosen is None:
+            raise RuntimeError("No running AutoCAD instance was found.")
+        self._pinned_pid = chosen["pid"]
+        self.acad = chosen["app"]
+        self.doc = None
+        return {"success": True, "pinned_pid": chosen["pid"], "instance": describe([chosen])[0]}
+
     def _get_active_autocad(self):
-        """Attach to the running AutoCAD instance through any registered ProgID."""
+        """Attach to the intended running AutoCAD; several instances require an explicit choice."""
+        from src.autocad_instances import choose_instance
+        try:
+            instances = self.running_instances()
+        except Exception as exc:  # ROT unavailable: keep the historical single-instance behaviour
+            logger.warning("AutoCAD instance enumeration failed (%s); using GetActiveObject", exc)
+            instances = None
+        if instances:
+            # Raises AmbiguousAutoCADInstances instead of guessing between several instances.
+            chosen = choose_instance(instances, getattr(self, "_pinned_pid", None),
+                                     os.environ.get("CAD_MCP_AUTOCAD_DOCUMENT") or None)
+            if chosen is not None:
+                return chosen["app"]
         last_error: Optional[Exception] = None
         for prog_id in self._autocad_prog_id_candidates():
             try:
@@ -144,6 +179,7 @@ class CADController:
         while True:
             try:
                 self.acad = self._get_active_autocad()
+                self._last_connect_error = None
                 if visible:
                     self.acad.Visible = True
                 if self.acad.Documents.Count > 0:
@@ -152,9 +188,11 @@ class CADController:
                 return True
             except Exception as e:
                 last_error = e
-                if time.time() >= deadline:
-                    break
+                from src.autocad_instances import AmbiguousAutoCADInstances
+                if isinstance(e, AmbiguousAutoCADInstances) or time.time() >= deadline:
+                    break  # waiting cannot resolve an ambiguous choice
                 time.sleep(0.5)
+        self._last_connect_error = str(last_error) if last_error else None
         logger.error(f"连接AutoCAD失败: {last_error}")
         return False
 

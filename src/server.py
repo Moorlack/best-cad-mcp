@@ -3912,6 +3912,27 @@ def get_tool_help(ctx: Context, tool_name: Optional[str] = None) -> str:
     return _build_registered_tool_help(tool_name)
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def list_autocad_instances(ctx: Context) -> Dict[str, Any]:
+    """List running AutoCAD processes (Civil 3D and other verticals included) with pid and open drawings.
+
+    When several run, every drawing/editing tool refuses to guess; pick one with
+    select_autocad_instance first. Read-only.
+    """
+    return utility_tools.list_autocad_instances()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True))
+def select_autocad_instance(ctx: Context, pid: Optional[int] = None, document_path: Optional[str] = None,
+                            clear: bool = False) -> Dict[str, Any]:
+    """Pin this MCP session to one AutoCAD process, by pid or by the full path of a drawing it has open.
+
+    Needed when several AutoCAD instances run (e.g. Civil 3D and AutoCAD share one COM ProgID).
+    clear=True removes the pin. Does not change any drawing.
+    """
+    return utility_tools.select_autocad_instance(pid=pid, document_path=document_path, clear=clear)
+
+
 @mcp.tool(
     description=TOOL_DESCRIPTIONS["check_runtime_environment"],
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
