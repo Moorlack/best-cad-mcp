@@ -28,6 +28,8 @@ from typing import Optional, List, Dict, Any, Tuple, Union
 from pathlib import Path
 from contextlib import contextmanager
 
+from src.workspace_paths import workspace_root as _workspace_root
+
 logger = logging.getLogger(__name__)
 
 # 数据库存储在 Agent 的工作目录（MCP 客户端的 cwd），而非 MCP 程序目录
@@ -113,8 +115,7 @@ def _env_int(name: str, default: int,
 
 
 def _get_default_workspace_root() -> str:
-    configured = _env_first("CAD_MCP_WORKSPACE_ROOT", default=os.getcwd())
-    return str(Path(configured).resolve())
+    return str(_workspace_root())
 
 
 def _get_default_db_path() -> str:

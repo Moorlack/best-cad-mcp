@@ -3175,7 +3175,7 @@ def export_view_image(ctx: Context, filepath: Optional[str] = None,
 
     Args:
         filepath: Optional .wmf output path. When omitted, a timestamped file
-            is written under cad_visual_exports in the MCP working directory.
+            is written under <workspace>/.cad_mcp/cad_visual_exports.
         zoom_extents_first: Whether to run zoom_extents before exporting.
     """
     return file_tools.export_view_image(filepath, zoom_extents_first)
@@ -5212,24 +5212,32 @@ def polyline_get_segment_type(ctx: Context, handle: str,
 def analyze_geometry(ctx: Context, entity_limit: int = 10000,
                      handles: Optional[List[str]] = None, layers: Optional[List[str]] = None,
                      gap_tolerance: Optional[float] = None,
-                     reference_lengths: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                     reference_lengths: Optional[List[Dict[str, Any]]] = None,
+                     parallel_separation_range: Optional[List[float]] = None,
+                     parallel_angle_tolerance_degrees: Optional[float] = None) -> Dict[str, Any]:
     """Read-only geometry checks for any domain, independent of layer naming conventions.
 
     Run a fresh scan first. Exact handles/layers filters intersect; omitted filters
     select all cached entities. Checks horizontal LINE contacts, groups and optional
     endpoint gaps in drawing units, straight WCS contours and block annotations.
     Optional external reference_lengths checks selected LINE lengths only.
+    Optional parallel_separation_range [min, max] (drawing units) lists parallel
+    overlapping LINE pairs at that offset with a midline; angle tolerance defaults
+    to 0.01 degrees (max 5). A line may appear in several pairs; nothing is merged.
     Inspect exclusions and coverage; no automatic repair or engineering conclusions.
     """
     return understanding_geometry.analyze_geometry(entity_limit=entity_limit, handles=handles,
-        layers=layers, gap_tolerance=gap_tolerance, reference_lengths=reference_lengths)
+        layers=layers, gap_tolerance=gap_tolerance, reference_lengths=reference_lengths,
+        parallel_separation_range=parallel_separation_range,
+        parallel_angle_tolerance_degrees=parallel_angle_tolerance_degrees)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
 def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   project_id: Optional[str] = None,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
-                                  wall_gap_tolerance: Optional[float] = None) -> Dict[str, Any]:
+                                  wall_gap_tolerance: Optional[float] = None,
+                                  wall_thickness_range: Optional[List[float]] = None) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5242,10 +5250,13 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     Agreement applies to those lines only; the whole drawing remains unverified.
     Optional positive wall_gap_tolerance searches nearby endpoints of disjoint
     wall LINE candidates in drawing coordinate units; gaps are not auto-repaired.
+    Optional wall_thickness_range [min, max] in drawing units pairs parallel wall
+    LINE faces into wall_segment_candidates (thickness, axis, source handles);
+    openings, junctions and structural role are not determined.
     """
     return understanding_architecture.analyze_architectural_drawing(
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
-        wall_gap_tolerance=wall_gap_tolerance)
+        wall_gap_tolerance=wall_gap_tolerance, wall_thickness_range=wall_thickness_range)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
@@ -5591,7 +5602,7 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
 
     Args:
         filepath: Optional export path; defaults to an auto-named file under
-            cad_visual_exports/.
+            <workspace>/.cad_mcp/cad_visual_exports/.
         which: Which image(s) to show: "auto", "clean", "overlay", or "both".
         include_overlay: Render the numbered overlay image for ID grounding.
         overlay_style: "bbox" or "som" (Set-of-Mark style labels).

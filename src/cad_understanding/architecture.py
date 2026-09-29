@@ -24,6 +24,7 @@ from .project_context import build_project_context
 from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
+from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
 
 
@@ -90,13 +91,15 @@ def _compatible(category: str, shape: str) -> bool:
     return shape in {"line", "open_polyline", "closed_polyline", "block_reference"}
 
 
-def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None) -> dict:
+def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
+                               wall_thickness_range=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
 requires human review. Candidate counts are not counts of physical elements.
 """
     validate_gap_tolerance(wall_gap_tolerance)
+    validate_wall_thickness_range(wall_thickness_range)
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
     section = drawing_ir.get("sections", {}).get("entities")
@@ -221,6 +224,11 @@ requires human review. Candidate counts are not counts of physical elements.
         if relation["relation"] in {"duplicate", "overlap", "intersection"}:
             issue("wall_line_" + relation["relation"], relation["handles"],
                   "Review the relationship of these wall candidates; no physical wall or repair is inferred.")
+    wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated)
+    for segment in wall_segments["segments"]:
+        if segment["ambiguous"]:
+            issue("wall_segment_ambiguous_face", segment["shared_line_handles"],
+                  "A wall face pairs with several parallel lines; review which pairing is intended.")
     relations = check_boundary_relations(valid_boundaries)
     relations["excluded_contour_handles"] = [c["handle"] for c in boundary_checks
                                               if c["status"] != "valid_simple_polygon"]
@@ -250,6 +258,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "boundary_relations": relations,
         "wall_line_diagnostics": wall_lines,
         "wall_networks": build_wall_networks(candidates, wall_lines),
+        "wall_segment_candidates": wall_segments,
         "drawing": drawing,
         "source": {"kind": "cached_cad_ir", "ir_generated_at": drawing_ir.get("generated_at"),
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
@@ -267,7 +276,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "limitations": [
             "Rule-based naming and primitive geometry only; confidence is not a probability.",
             "Candidates represent source entities, not grouped physical walls or complete building elements.",
-            "No wall pairing, opening-to-wall association, floor assignment, or block/xref traversal.",
+            "Wall faces are paired only when wall_thickness_range is supplied; no opening-to-wall association, floor assignment, or block/xref traversal.",
             "Single straight horizontal contours can have geometric area; floor areas, holes and curved contours remain unverified.",
             "No exterior/interior or load-bearing classification, code checks, or member sizing.",
         ],
@@ -278,13 +287,15 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   database: Optional[CADDatabase] = None,
                                   project_id: Optional[str] = None,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
-                                  wall_gap_tolerance: Optional[float] = None) -> Dict[str, Any]:
+                                  wall_gap_tolerance: Optional[float] = None,
+                                  wall_thickness_range: Optional[List[float]] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
     project = None
     try:
         validate_gap_tolerance(wall_gap_tolerance)
+        validate_wall_thickness_range(wall_thickness_range)
     except ValueError as exc:
         return error_result(str(exc))
     if reference_lengths is not None:
@@ -300,7 +311,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         database=database, rescan=False, sections=["entities", "blocks", "quality"],
         entity_limit=entity_limit, include_raw=True,
     )
-    report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance)
+    report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance,
+                                        wall_thickness_range=wall_thickness_range)
     if reference_lengths is not None:
         report["scale_reference_check"] = check_scale_references(drawing_ir, reference_lengths)
         for check in report["scale_reference_check"]["checks"]:

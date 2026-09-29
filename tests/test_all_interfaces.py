@@ -92,6 +92,9 @@ with patch('src.cad_controller.CADController', autospec=True) as mock_ctrl_cls, 
     from src.cad_understanding import view_grounding as understanding_view
     from src.cad_understanding import vision as understanding_vision
     from src.cad_understanding import vlm as understanding_vlm
+    from src.cad_understanding import architecture as understanding_architecture
+    from src.cad_understanding import geometry_analysis as understanding_geometry
+    from src.cad_understanding import project_card as engineering_project
 
     # Import shared modules
     from src import cad_utils
@@ -1609,6 +1612,7 @@ class TestToolWiring(unittest.TestCase):
             'understanding_resources', 'understanding_semantic',
             'understanding_validators', 'understanding_view',
             'understanding_vision', 'understanding_vlm',
+            'understanding_architecture', 'understanding_geometry', 'engineering_project',
         }
         # Find pattern: def tool_name(...): ... module.func(...)
         # This is heuristic but effective for this codebase
@@ -1661,6 +1665,9 @@ class TestToolWiring(unittest.TestCase):
             'understanding_view': understanding_view,
             'understanding_vision': understanding_vision,
             'understanding_vlm': understanding_vlm,
+            'understanding_architecture': understanding_architecture,
+            'understanding_geometry': understanding_geometry,
+            'engineering_project': engineering_project,
         }
 
         issues = []
@@ -1710,6 +1717,8 @@ class TestToolWiring(unittest.TestCase):
             'precise_draw_from_spec', 'copy_drawing_from_image',
             'recognize_components_from_image', 'vlm_review_drawing',
             'repair_drawing', 'main',
+            # Calls the imported self-test function directly, not a tool module.
+            'check_visual_pipeline',
         }
 
         missing = []
@@ -1814,7 +1823,8 @@ class TestActiveXCallShapes(unittest.TestCase):
         with patch.object(controller, "_ensure_connected") as ensure, \
              patch.object(controller, "_default_template_candidates", return_value=[template]), \
              patch("src.cad_controller.os.path.isfile", return_value=True), \
-             patch("src.cad_controller.os.makedirs") as makedirs, \
+             patch("src.cad_controller.default_output_dir",
+                   return_value=r"C:\Workspace\.cad_mcp\generated_drawings") as output_dir, \
              patch("src.cad_controller.shutil.copyfile") as copyfile, \
              patch("src.cad_controller.time.time", return_value=123.456):
             result = controller.create_drawing()
@@ -1823,8 +1833,9 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertTrue(result["success"], result)
         self.assertEqual(result["fallback_method"], "open_copied_template")
         copyfile.assert_called_once()
-        makedirs.assert_called_once()
+        output_dir.assert_called_once_with("generated_drawings")
         controller.acad.Documents.Open.assert_called_once()
+        self.assertIn(r"C:\Workspace\.cad_mcp\generated_drawings", controller.acad.Documents.Open.call_args.args[0])
         self.assertIn("acadiso_123456.dwg", controller.acad.Documents.Open.call_args.args[0])
 
     def test_create_drawing_uses_qnew_after_template_fallbacks_fail(self):

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.cad_database import CADDatabase
+from src.workspace_paths import default_output_dir
 
 from .common import (
     all_entities,
@@ -1613,8 +1614,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
                                    database: Optional[CADDatabase] = None) -> ToolResult:
     db = get_db(database)
     if filepath is None or not str(filepath).strip():
-        out_dir = Path.cwd() / "cad_visual_exports"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = default_output_dir("cad_visual_exports")
         filepath = str(out_dir / f"cad_view_mapped_{stable_id('shot', now_iso())}.wmf")
     path = Path(filepath)
 

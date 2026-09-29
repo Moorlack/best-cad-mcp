@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.cad_database import CADDatabase
+from src.workspace_paths import default_output_dir
 
 from .common import (
     current_scope,
@@ -1662,7 +1663,7 @@ def prepare_image_trace(image_path: str,
     except Exception as exc:
         return error_result(str(exc), next_tools=["prepare_image_trace"])
     image_id = stable_id("img", str(source), source.stat().st_mtime_ns, width, height)
-    out_dir = Path.cwd() / "cad_image_traces"
+    out_dir = default_output_dir("cad_image_traces")
     normalized_path = out_dir / f"{image_id}_normalized.png"
     normalized_image, warnings = _copy_or_normalize_image(source, normalized_path)
     normalized_width, normalized_height = width, height

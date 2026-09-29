@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List
 from src.cad_controller import get_controller
 from src.cad_database import get_database
+from src.workspace_paths import default_output_dir
 from src.cad_utils import format_success
 
 ctrl = get_controller()
@@ -94,8 +95,7 @@ def export_view_image(filepath: Optional[str] = None,
     the reliable AutoCAD COM image export format in this server.
     """
     if filepath is None or not str(filepath).strip():
-        out_dir = Path.cwd() / "cad_visual_exports"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = default_output_dir("cad_visual_exports")
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = str(out_dir / f"cad_view_{stamp}.wmf")
 

@@ -388,9 +388,13 @@ every AutoCAD or COM failure. Work on copies when the drawing is valuable.
 ## Workspace and data
 
 `CAD_MCP_WORKSPACE_ROOT` controls
-`<workspace>/.cad_mcp/workspace.db`. The default log, visual exports, and image
-trace assets are written relative to the MCP process `cwd` as `cad_mcp.log`,
-`cad_visual_exports/`, and `cad_image_traces/`.
+`<workspace>/.cad_mcp/workspace.db`. Visual exports, image trace assets and
+drawings copied from templates default to `<workspace>/.cad_mcp/cad_visual_exports/`,
+`cad_image_traces/` and `generated_drawings/`; if that location is not writable,
+`%LOCALAPPDATA%/best-cad-mcp/` and then the system temp directory are used.
+They no longer depend on the process `cwd`, which MCP clients may set to
+`C:\Windows`. The default log is still `cad_mcp.log` in the process `cwd`
+unless `CAD_MCP_LOG_PATH` is set.
 
 External CAD projects are not ignored automatically. Add these entries to the
 project's `.gitignore` when it is a Git repository:

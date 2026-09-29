@@ -21,6 +21,7 @@ import time
 from contextlib import contextmanager
 from typing import Optional, List, Tuple, Dict, Any
 from src.cad_utils import DetailLevel, com_get, com_set
+from src.workspace_paths import default_output_dir
 
 try:
     import winreg
@@ -325,8 +326,7 @@ class CADController:
     def _open_copied_template_drawing(self, template_path: str) -> Dict[str, Any]:
         if not template_path or not os.path.isfile(template_path):
             raise FileNotFoundError(template_path)
-        out_dir = os.path.join(os.getcwd(), ".cad_mcp", "generated_drawings")
-        os.makedirs(out_dir, exist_ok=True)
+        out_dir = str(default_output_dir("generated_drawings"))
         stem = os.path.splitext(os.path.basename(template_path))[0] or "template"
         safe_stem = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in stem)
         dwg_path = os.path.abspath(

@@ -10,6 +10,7 @@ from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
 from .line_networks import build_line_networks
+from .line_pairs import find_parallel_pairs, validate_angle_tolerance, validate_separation_range
 from .scale_references import check_scale_references, validate_references
 
 
@@ -30,11 +31,14 @@ def _selection(values, name):
 
 
 def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=None,
-                          reference_lengths=None):
+                          reference_lengths=None, parallel_separation_range=None,
+                          parallel_angle_tolerance_degrees=None):
     """Pure Python entry point. Filters intersect; names are exact and never semantic."""
     _selection(handles, 'handles')
     _selection(layers, 'layers')
     validate_gap_tolerance(gap_tolerance)
+    validate_separation_range(parallel_separation_range)
+    validate_angle_tolerance(parallel_angle_tolerance_degrees)
     if reference_lengths is not None:
         validate_references(reference_lengths)
     if drawing_ir.get('schema_version') != 'cad-ir/v2':
@@ -99,6 +103,9 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
               'limitations': ['Geometry evidence only; no domain classification or automatic repair.',
                               'Horizontal LINE and straight horizontal WCS contours only; inspect exclusions.',
                               'Declared units do not verify scale. Snapshot freshness must be established by a scan.']}
+    if parallel_separation_range is not None:
+        result['parallel_line_pairs'] = find_parallel_pairs(
+            lines, parallel_separation_range, parallel_angle_tolerance_degrees, incomplete)
     if reference_lengths is not None:
         scoped = deepcopy(drawing_ir)
         scoped['sections']['entities']['items'] = selected
@@ -107,7 +114,8 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
 
 
 def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_tolerance=None,
-                     reference_lengths=None, database=None):
+                     reference_lengths=None, parallel_separation_range=None,
+                     parallel_angle_tolerance_degrees=None, database=None):
     # Lazy imports keep the pure entry point independent of SQLite/AutoCAD/MCP runtime.
     from .ir_builder import build_drawing_ir
     from .result import error_result, ok_result
@@ -118,11 +126,14 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
         _selection(handles, 'handles')
         _selection(layers, 'layers')
         validate_gap_tolerance(gap_tolerance)
+        validate_separation_range(parallel_separation_range)
+        validate_angle_tolerance(parallel_angle_tolerance_degrees)
         if reference_lengths is not None:
             validate_references(reference_lengths)
         snapshot = build_drawing_ir(database=database, rescan=False, sections=['entities'],
                                     entity_limit=entity_limit, include_raw=True)
-        report = build_geometry_report(snapshot, handles, layers, gap_tolerance, reference_lengths)
+        report = build_geometry_report(snapshot, handles, layers, gap_tolerance, reference_lengths,
+                                       parallel_separation_range, parallel_angle_tolerance_degrees)
     except ValueError as exc:
         return error_result(str(exc))
     return ok_result('Built domain-neutral geometry report; inspect coverage and limitations.',

@@ -59,13 +59,10 @@ def _pair(first, second):
     return "disjoint"
 
 
-def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=None,
-                   drawing_units="unknown", scope="selected_LINE_entities",
-                   review_key="requires_review"):
-    validate_gap_tolerance(gap_tolerance)
+def eligible_lines(candidates):
+    """Split candidates into horizontal LINE endpoints by handle and explicit exclusions."""
     eligible, excluded = {}, []
-    selected_candidates = candidates
-    for candidate in sorted(selected_candidates, key=lambda c: c["handles"][0]):
+    for candidate in sorted(candidates, key=lambda c: c["handles"][0]):
         handle = candidate["handles"][0]
         if candidate["shape"] != "line" or candidate.get("excluded_reason"):
             excluded.append({"handle": handle, "reason": candidate.get("excluded_reason") or "unsupported_shape"})
@@ -80,6 +77,15 @@ def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=No
             excluded.append({"handle": handle, "reason": "line_limit_exceeded"})
         else:
             eligible[handle] = points
+    return eligible, excluded
+
+
+def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=None,
+                   drawing_units="unknown", scope="selected_LINE_entities",
+                   review_key="requires_review"):
+    validate_gap_tolerance(gap_tolerance)
+    eligible, excluded = eligible_lines(candidates)
+    selected_candidates = candidates
     result = {"scope": scope, "candidate_count": len(selected_candidates),
               "eligible_lines": len(eligible), "excluded": excluded,
               "total_pairs": len(eligible) * (len(eligible) - 1) // 2,
