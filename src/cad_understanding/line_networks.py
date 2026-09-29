@@ -21,7 +21,8 @@ def build_line_networks(candidates, diagnostics, id_prefix="line_network_",
     for key, node in nodes.items():
         source = node.get('source')
         if source:
-            by_source.setdefault(source['handle'], []).append(key)
+            # One chain per polyline, or per MLINE element (its faces are separate lines).
+            by_source.setdefault((source['handle'], source.get('element')), []).append(key)
     for keys in by_source.values():
         for a, b in zip(keys, keys[1:]):
             adjacency[a].add(b)

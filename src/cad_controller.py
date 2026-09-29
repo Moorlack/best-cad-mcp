@@ -3696,7 +3696,7 @@ class CADController:
                         "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse",
                         "AcDbSpline", "AcDbPolyline", "AcDb2dPolyline",
                         "AcDb3dPolyline",
-                        "AcDbBlockReference",
+                        "AcDbBlockReference", "AcDbMline",
                     }
                 )
                 if read_common_properties or capture_entity_geometry:
@@ -3803,6 +3803,17 @@ class CADController:
                         ))
                         info["is_closed"] = closed
                         info["closed"] = closed
+                    elif obj_name == "AcDbMline":
+                        # Vertices and style data only; element offsets are not exposed by COM.
+                        info["vertices"] = self._scan_coordinate_points(
+                            com_get(typed_ent, "Coordinates", None), step=3)
+                        info["mline_style"] = com_get(typed_ent, "StyleName", None)
+                        for field, prop, cast in (("mline_scale", "MLineScale", float),
+                                                  ("mline_justification", "Justification", int)):
+                            try:
+                                info[field] = cast(com_get(typed_ent, prop, None))
+                            except (TypeError, ValueError):
+                                info[field] = None
                     elif obj_name == "AcDbBlockReference":
                         # Preserve reference metadata, never explode or traverse a block.
                         from src.cad_understanding.block_attributes import capture_block_attributes

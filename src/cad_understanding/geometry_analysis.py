@@ -10,7 +10,7 @@ from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
 from .line_networks import build_line_networks
-from .polyline_parts import split_polyline
+from .polyline_parts import split_mline, split_polyline
 from .axis_junctions import validate_junction_tolerance
 from .line_pairs import find_parallel_pairs, validate_angle_tolerance, validate_separation_range
 from .scale_references import check_scale_references, validate_references
@@ -84,6 +84,12 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
             boundaries.append({'handle': h, **check})
             if check['status'] == 'valid_simple_polygon':
                 valid[h] = g
+        elif 'mline' in kinds:
+            parts, skipped = split_mline(
+                h, g, 'geom_' + hashlib.sha256((identity+'\0'+h).encode()).hexdigest()[:20],
+                entity.get('layer', '0'))
+            polyline_parts.extend(parts)
+            polyline_excluded.extend(skipped)
         else:
             unsupported.append({'handle': h, 'reason': 'entity_type_not_supported_for_geometry_checks'})
     missing = sorted(set(handles or []) - {e.get('handle') for e in selected})

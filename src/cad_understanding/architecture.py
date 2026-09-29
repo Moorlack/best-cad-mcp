@@ -72,6 +72,10 @@ def _shape(entity: dict) -> tuple[str, list[str]]:
             if closed and len({tuple(p) for p in vertices}) >= 3:
                 return "closed_polyline", ["boundary_topology_not_verified"]
             return "open_polyline", []
+    if "mline" in kinds:
+        vertices = geometry.get("vertices", [])
+        if isinstance(vertices, list) and len(vertices) >= 2 and all(_point(p) for p in vertices):
+            return "mline", []
     if any(kind.startswith("blockref") for kind in kinds):
         if _point(geometry.get("insertion_point")):
             return "block_reference", ["block_contents_not_interpreted"]
@@ -88,6 +92,8 @@ def _compatible(category: str, shape: str) -> bool:
         return shape == "closed_polyline"
     if category == "grid":
         return shape == "line"
+    if shape == "mline":
+        return category == "wall"
     if category == "column":
         return shape in {"closed_polyline", "circle", "block_reference"}
     return shape in {"line", "open_polyline", "closed_polyline", "block_reference"}

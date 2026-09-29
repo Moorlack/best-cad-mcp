@@ -55,10 +55,69 @@ def split_polyline(handle, geometry, base_id, layer="0"):
     return parts, excluded
 
 
+# STANDARD MLINE style: two elements at +0.5 and -0.5 (positive = left of the
+# drawing direction). Justification moves the vertices onto the top (0), the
+# centre (1) or the bottom (2) element. Other styles' offsets are not exposed by COM.
+STANDARD_MLINE_OFFSETS = {0: (0.0, -1.0), 1: (0.5, -0.5), 2: (1.0, 0.0)}
+
+
+def _offset_chain(points, offset):
+    """Mitered offset of an open chain; parallel neighbours fall back to a plain offset."""
+    normals = []
+    for a, b in zip(points, points[1:]):
+        length = math.dist(a[:2], b[:2])
+        normals.append((-(b[1] - a[1]) / length, (b[0] - a[0]) / length))
+    out = []
+    for j, p in enumerate(points):
+        if j == 0 or j == len(points) - 1:
+            n = normals[0] if j == 0 else normals[-1]
+            out.append((p[0] + n[0] * offset, p[1] + n[1] * offset, p[2]))
+            continue
+        n1, n2 = normals[j - 1], normals[j]
+        denom = 1 + n1[0] * n2[0] + n1[1] * n2[1]
+        if denom < 1e-9:  # reversal; keep the incoming offset
+            out.append((p[0] + n1[0] * offset, p[1] + n1[1] * offset, p[2]))
+            continue
+        # Miter point: offset along the bisector, scaled by 1/cos(half angle).
+        mx, my = (n1[0] + n2[0]) / denom, (n1[1] + n2[1]) / denom
+        out.append((p[0] + mx * offset, p[1] + my * offset, p[2]))
+    return out
+
+
+def split_mline(handle, geometry, base_id, layer="0"):
+    """Face segments of a STANDARD-style MLINE; returns (parts, excluded)."""
+    vertices = geometry.get("vertices", [])
+    style = str(geometry.get("mline_style") or "")
+    scale, just = geometry.get("mline_scale"), geometry.get("mline_justification")
+    if not isinstance(vertices, list) or len(vertices) < 2 or not all(_point(v) for v in vertices):
+        return [], [{"handle": handle, "reason": "invalid_mline_vertices"}]
+    if style.upper() != "STANDARD":
+        return [], [{"handle": handle, "reason": "mline_style_offsets_unknown"}]
+    if type(scale) not in (int, float) or not math.isfinite(scale) or just not in STANDARD_MLINE_OFFSETS:
+        return [], [{"handle": handle, "reason": "mline_scale_or_justification_missing"}]
+    points = [tuple(v) + ((0.0,) if len(v) == 2 else ()) for v in vertices]
+    points = [p for i, p in enumerate(points) if i == 0 or math.dist(p[:2], points[i - 1][:2]) > EPS]
+    if len(points) < 2:
+        return [], [{"handle": handle, "reason": "degenerate_segment"}]
+    parts = []
+    count = len(points) - 1
+    for k, offset in enumerate(STANDARD_MLINE_OFFSETS[just]):
+        chain = _offset_chain(points, offset * scale)
+        for i in range(count):
+            key = f"{handle}#e{k}s{i}"
+            parts.append({"id": f"{base_id}#e{k}s{i}", "handles": [key], "shape": "line", "excluded_reason": None,
+                          "geometry": {"start": list(chain[i]), "end": list(chain[i + 1])}, "layer": layer,
+                          "source": {"handle": handle, "element": k, "segment_index": i,
+                                     "segment_count": count, "closed": False}})
+    return parts, []
+
+
 def adjacent_parts(a, b):
-    """True for consecutive segments of one polyline, which touch by construction."""
+    """True for consecutive segments of one polyline (or MLINE element), which touch by construction."""
     sa, sb = a.get("source") or {}, b.get("source") or {}
     if not sa or sa.get("handle") != sb.get("handle") or sa.get("segment_index") is None:
+        return False
+    if sa.get("element") != sb.get("element"):
         return False
     i, j, n = sa["segment_index"], sb["segment_index"], sa.get("segment_count") or 0
     return abs(i - j) == 1 or (bool(sa.get("closed")) and n > 2 and {i, j} == {0, n - 1})
@@ -69,4 +128,8 @@ def source_of(key):
     handle, sep, index = str(key).rpartition("#")
     if sep and index.isdigit():
         return {"handle": handle, "segment_index": int(index)}
+    if sep and index.startswith("e") and "s" in index:
+        element, _, segment = index[1:].partition("s")
+        if element.isdigit() and segment.isdigit():
+            return {"handle": handle, "element": int(element), "segment_index": int(segment)}
     return {"handle": str(key), "segment_index": None}
