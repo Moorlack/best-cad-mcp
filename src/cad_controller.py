@@ -161,6 +161,11 @@ class CADController:
         from src.autocad_instances import choose_instance, describe
         if clear:
             self._pinned_pid = None
+            # A cached connection bypasses instance selection in _ensure_connected.
+            # Keep discovery references, but require the next operation to choose again.
+            self.acad = None
+            self.doc = None
+            self._last_connect_error = None
             return {"success": True, "pinned_pid": None}
         from src.autocad_instances import acad_process_pids
         chosen = choose_instance(self.running_instances(), pid, document_path, acad_process_pids())

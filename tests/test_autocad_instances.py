@@ -115,6 +115,46 @@ def test_tasklist_parsing():
     assert parse_tasklist_csv("") == set()
 
 
+def test_clear_cached_connection_requires_explicit_selection_again(ctrl, monkeypatch):
+    from src import autocad_instances
+    document = SimpleNamespace(Name="TEST2.dwg")
+    app = SimpleNamespace(Documents=SimpleNamespace(Count=1), ActiveDocument=document)
+    acad = {**ACAD, "app": app}
+    ctrl._known_instances = {101: CIVIL, 202: acad}
+    monkeypatch.setattr(CADController, "running_instances", lambda self: [CIVIL, acad])
+    monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {101, 202})
+    ctrl.select_instance(document_path=r"C:\Tests\TEST2.dwg")
+    ctrl._ensure_connected()
+    assert ctrl.doc is document
+    ctrl.select_instance(clear=True)
+    # Exercise the same public read that incorrectly reused the connection live.
+    blocked = ctrl.get_document_info()
+    assert blocked["success"] is False
+    assert "select_autocad_instance" in blocked["message"]
+    assert ctrl.acad is None and ctrl.doc is None
+    assert set(ctrl._known_instances) == {101, 202}
+    ctrl.select_instance(document_path=r"C:\Tests\TEST2.dwg")
+    ctrl._ensure_connected()
+    assert ctrl.acad is app and ctrl.doc is document
+
+
+@pytest.mark.parametrize("explicit_environment", [False, True])
+def test_clear_reconnects_when_selection_is_unambiguous(ctrl, monkeypatch, explicit_environment):
+    from src import autocad_instances
+    document = SimpleNamespace(Name="TEST2.dwg")
+    app = SimpleNamespace(Documents=SimpleNamespace(Count=1), ActiveDocument=document)
+    acad = {**ACAD, "app": app}
+    instances = [CIVIL, acad] if explicit_environment else [acad]
+    monkeypatch.setattr(CADController, "running_instances", lambda self: instances)
+    monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {i['pid'] for i in instances})
+    if explicit_environment:
+        monkeypatch.setenv("CAD_MCP_AUTOCAD_DOCUMENT", r"C:\Tests\TEST2.dwg")
+    ctrl.select_instance(pid=202)
+    ctrl.select_instance(clear=True)
+    ctrl._ensure_connected()
+    assert ctrl.acad is app and ctrl.doc is document
+
+
 def test_pinned_process_running_but_unreachable_is_explained():
     with pytest.raises(RuntimeError, match="running but not reachable through COM"):
         choose_instance([ACAD], pinned_pid=101, process_pids={101, 202})
