@@ -10,6 +10,7 @@ from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
 from .line_networks import build_line_networks
+from .polyline_parts import split_polyline
 from .axis_junctions import validate_junction_tolerance
 from .line_pairs import find_parallel_pairs, validate_angle_tolerance, validate_separation_range
 from .scale_references import check_scale_references, validate_references
@@ -56,6 +57,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
     identity = str(drawing.get('path') or drawing.get('name') or 'unknown')
     truncated = bool(section.get('truncated') or section.get('total', len(entities)) != len(entities))
     lines, boundaries, valid, unsupported, identity_errors = [], [], {}, [], []
+    polyline_parts, polyline_excluded = [], []
     for entity in sorted(selected, key=lambda e: str(e.get('handle') or '')):
         h = str(entity.get('handle') or '')
         if not h or counts[h] != 1:
@@ -71,6 +73,11 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
                           'excluded_reason': None if good else 'invalid_coordinates',
                           'geometry': deepcopy(g), 'layer': entity.get('layer', '0')})
         elif kinds & {'polyline', '2dpolyline', 'lwpolyline'}:
+            parts, skipped = split_polyline(
+                h, g, 'geom_' + hashlib.sha256((identity+'\0'+h).encode()).hexdigest()[:20],
+                entity.get('layer', '0'))
+            polyline_parts.extend(parts)
+            polyline_excluded.extend(skipped)
             check = check_boundary(g) if len(boundaries) < 100 else {
                 'status': 'not_verified', 'reason': 'report_boundary_limit_exceeded',
                 'geometric_area_drawing_units_squared': None}
@@ -107,8 +114,8 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
                               'Declared units do not verify scale. Snapshot freshness must be established by a scan.']}
     if parallel_separation_range is not None:
         result['parallel_line_pairs'] = find_parallel_pairs(
-            lines, parallel_separation_range, parallel_angle_tolerance_degrees, incomplete,
-            junction_tolerance=junction_tolerance, include_junctions=True)
+            lines + polyline_parts, parallel_separation_range, parallel_angle_tolerance_degrees, incomplete,
+            junction_tolerance=junction_tolerance, include_junctions=True, extra_excluded=polyline_excluded)
     if reference_lengths is not None:
         scoped = deepcopy(drawing_ir)
         scoped['sections']['entities']['items'] = selected

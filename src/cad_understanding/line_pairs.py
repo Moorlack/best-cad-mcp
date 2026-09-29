@@ -7,6 +7,7 @@ from itertools import combinations
 
 from .axis_junctions import find_axis_junctions
 from .line_geometry import EPS, eligible_lines
+from .polyline_parts import source_of
 
 DEFAULT_ANGLE_TOLERANCE_DEGREES = 0.01
 MAX_ANGLE_TOLERANCE_DEGREES = 5.0
@@ -95,8 +96,8 @@ def _measure(first, second, angle_tolerance):
 
 def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=None,
                         entity_coverage_truncated=False, id_prefix="line_pair_",
-                        review_key="requires_review", scope="selected_LINE_entities",
-                        junction_tolerance=None, include_junctions=False):
+                        review_key="requires_review", scope="selected_LINE_and_straight_polyline_segments",
+                        junction_tolerance=None, include_junctions=False, extra_excluded=()):
     """Pairs of parallel LINEs whose offset lies in an explicit distance range.
 
     The result is geometric evidence only: the same line may pair with several
@@ -107,6 +108,7 @@ def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=No
     tolerance = (DEFAULT_ANGLE_TOLERANCE_DEGREES if angle_tolerance_degrees is None
                  else angle_tolerance_degrees)
     eligible, excluded = eligible_lines(candidates)
+    excluded = list(extra_excluded) + excluded
     ids = {c["handles"][0]: c.get("id", c["handles"][0]) for c in candidates}
     low, high = separation_range
     pairs, reasons = [], Counter()
@@ -121,6 +123,7 @@ def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=No
         key = "\0".join(sorted((ids[ha], ids[hb])))
         pairs.append({"id": id_prefix + hashlib.sha256(key.encode()).hexdigest()[:20],
                       "handles": [ha, hb], "source_ids": [ids[ha], ids[hb]],
+                      "sources": [source_of(ha), source_of(hb)],
                       "status": "candidate", **measured, review_key: True})
     usage = Counter(h for pair in pairs for h in pair["handles"])
     for pair in pairs:
