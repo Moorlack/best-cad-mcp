@@ -5242,7 +5242,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
                                   wall_gap_tolerance: Optional[float] = None,
                                   wall_thickness_range: Optional[List[float]] = None,
-                                  wall_junction_tolerance: Optional[float] = None) -> Dict[str, Any]:
+                                  wall_junction_tolerance: Optional[float] = None,
+                                  wall_opening_max_width: Optional[float] = None) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5259,12 +5260,15 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     LINE faces into wall_segment_candidates (thickness, axis, source handles);
     wall_segment_candidates.junctions lists corner/T/crossing/collinear-gap candidates
     between segment axes (optional wall_junction_tolerance; default larger thickness).
-    Openings and structural role are not determined.
+    wall_segment_candidates.openings relates door/window/opening candidates to segments:
+    in_wall_gap / on_wall_segment / not_on_wall_segment; optional wall_opening_max_width
+    (drawing units, needs wall_thickness_range) searches face gaps up to that width.
+    Opening size, type and structural role are not determined.
     """
     return understanding_architecture.analyze_architectural_drawing(
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
         wall_gap_tolerance=wall_gap_tolerance, wall_thickness_range=wall_thickness_range,
-        wall_junction_tolerance=wall_junction_tolerance)
+        wall_junction_tolerance=wall_junction_tolerance, wall_opening_max_width=wall_opening_max_width)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))

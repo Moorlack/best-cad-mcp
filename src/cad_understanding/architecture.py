@@ -25,6 +25,7 @@ from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
+from .wall_openings import relate_openings, validate_opening_max_width
 from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
 
@@ -92,8 +93,15 @@ def _compatible(category: str, shape: str) -> bool:
     return shape in {"line", "open_polyline", "closed_polyline", "block_reference"}
 
 
+def _validate_opening_request(thickness_range, max_width):
+    validate_opening_max_width(max_width)
+    if max_width is not None and thickness_range is None:
+        raise ValueError("wall_opening_max_width requires wall_thickness_range to pair wall faces first.")
+
+
 def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
-                               wall_thickness_range=None, wall_junction_tolerance=None) -> dict:
+                               wall_thickness_range=None, wall_junction_tolerance=None,
+                               wall_opening_max_width=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
@@ -102,6 +110,7 @@ requires human review. Candidate counts are not counts of physical elements.
     validate_gap_tolerance(wall_gap_tolerance)
     validate_wall_thickness_range(wall_thickness_range)
     validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
+    _validate_opening_request(wall_thickness_range, wall_opening_max_width)
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
     section = drawing_ir.get("sections", {}).get("entities")
@@ -228,6 +237,18 @@ requires human review. Candidate counts are not counts of physical elements.
                   "Review the relationship of these wall candidates; no physical wall or repair is inferred.")
     wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated,
                                                   wall_junction_tolerance)
+    if wall_segments["requested"]:
+        openings = relate_openings(candidates, wall_segments["segments"], wall_opening_max_width, identity)
+        wall_segments["openings"] = openings
+        for gap_id in openings["gaps_without_opening_candidate"]:
+            gap = next(g for g in openings["gaps"] if g["id"] == gap_id)
+            issue("wall_gap_without_opening_candidate", [],
+                  f"Gap {gap_id} between wall segments has no door/window/opening candidate; "
+                  "check for an unnamed opening or a drawing break.")
+        for item in openings["openings"]:
+            if item["status"] == "not_on_wall_segment":
+                issue("opening_not_on_wall_segment", item["handles"],
+                      "Door/window/opening candidate does not overlap any paired wall segment.")
     for segment in wall_segments["segments"]:
         if segment["ambiguous"]:
             issue("wall_segment_ambiguous_face", segment["shared_line_handles"],
@@ -292,7 +313,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
                                   wall_gap_tolerance: Optional[float] = None,
                                   wall_thickness_range: Optional[List[float]] = None,
-                                  wall_junction_tolerance: Optional[float] = None) -> Dict[str, Any]:
+                                  wall_junction_tolerance: Optional[float] = None,
+                                  wall_opening_max_width: Optional[float] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
@@ -301,6 +323,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         validate_gap_tolerance(wall_gap_tolerance)
         validate_wall_thickness_range(wall_thickness_range)
         validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
+        _validate_opening_request(wall_thickness_range, wall_opening_max_width)
     except ValueError as exc:
         return error_result(str(exc))
     if reference_lengths is not None:
@@ -318,7 +341,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     )
     report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance,
                                         wall_thickness_range=wall_thickness_range,
-                                        wall_junction_tolerance=wall_junction_tolerance)
+                                        wall_junction_tolerance=wall_junction_tolerance,
+                                        wall_opening_max_width=wall_opening_max_width)
     from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
     freshness = check_snapshot_freshness(database)
     code = apply_to_report(report, freshness)

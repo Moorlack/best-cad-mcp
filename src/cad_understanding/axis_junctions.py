@@ -103,3 +103,48 @@ def find_axis_junctions(axes, tolerance=None, id_key="id"):
             "coverage_complete": not skipped,
             "interpretation": ("Axis junction candidates from geometry only; axes are not trimmed or merged, "
                                "and a gap is not confirmed as an opening.")}
+
+
+def find_axis_gaps(axes, max_gap, id_key="id"):
+    """Gaps between collinear axes whose facing ends are 0 < gap <= max_gap apart.
+
+    Each gap is returned with its start/end on the axis so callers can test what
+    lies in it; a gap is geometric evidence, not an opening or a drawing error.
+    """
+    validate_junction_tolerance(max_gap, "max_gap")
+    usable = []
+    for axis in axes:
+        try:
+            _, _, length = _vec(axis)
+            if math.isfinite(length) and length > 0:
+                usable.append(axis)
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            pass
+    gaps = []
+    for a, b in combinations(usable[:MAX_AXES], 2):
+        pa, da, la = _vec(a)
+        pb, db, lb = _vec(b)
+        if abs(da[0] * db[1] - da[1] * db[0]) >= PARALLEL_SIN:
+            continue
+        width = max(float(a["width"]), float(b["width"]))
+        offset = abs((pb[0] - pa[0]) * -da[1] + (pb[1] - pa[1]) * da[0])
+        if offset > COLLINEAR_FRACTION * width:
+            continue
+        ends = sorted(((pb[0] - pa[0]) * da[0] + (pb[1] - pa[1]) * da[1],
+                       (pb[0] + db[0] * lb - pa[0]) * da[0] + (pb[1] + db[1] * lb - pa[1]) * da[1]))
+        if ends[0] >= la:
+            first, second, lo, hi = a, b, la, ends[0]
+        elif ends[1] <= 0:
+            first, second, lo, hi = b, a, ends[1], 0.0
+        else:
+            continue  # overlapping axes are not a gap
+        gap = hi - lo
+        if not EPS < gap <= max_gap:
+            continue
+        gaps.append({"ids": [first[id_key], second[id_key]], "gap_length": gap, "width": width,
+                     "lateral_offset": offset,
+                     "start_wcs": [pa[0] + da[0] * lo, pa[1] + da[1] * lo],
+                     "end_wcs": [pa[0] + da[0] * hi, pa[1] + da[1] * hi],
+                     "status": "candidate"})
+    return {"requested": True, "max_gap_drawing_units": max_gap, "gaps": gaps, "gap_count": len(gaps),
+            "coverage_complete": len(usable) <= MAX_AXES}
