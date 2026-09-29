@@ -202,10 +202,11 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 Не смешивать AutoCAD/Revit установщики, runtime или очистку. Профиль core остаётся текущим; адресное включение недостающих инструментов возможно через CAD_MCP_TOOLS_INCLUDE. Full не добавляет инженерные расчёты; менять профиль без конкретной необходимости не требуется.
 
-### Установщик 2026.09.29.01
+### Установщик 2026.09.29.02
 
 - [x] `../MCP AutoCAD/SetupMCP AutoCAD.cmd` (вне Git; копия прежней версии — `../.verification/SetupMCP AutoCAD.2026.09.21.01.backup.cmd`). Новый пункт «Update only the shared AutoCAD MCP server»: все клиенты запускают один код из ProgramData, поэтому обновляются только git/venv/pip/self-test/startup-test, регистрации Claude/Codex/Antigravity не меняются. Перед обновлением показывает ещё работающие процессы `src.server` и спрашивает подтверждение; в конце печатает установленный коммит и список клиентов для полного перезапуска. Repair/Extend для клиентов и прежний CMD продолжают работать как раньше.
 - [x] Проверки: разбор payload, clone/Repair-stash/divergence (`.verification/test-autocad-fork-update.ps1`) PASS; выбор пункта меню и поиск реальных процессов проверены изолированно. Реальный запуск нового пункта пользователем ещё не выполнялся. Коллеге нужен новый CMD только ради этого пункта; прежний Repair по-прежнему получает код из fork.
+- [x] 2026.09.29.02: при открытии меню установщик сравнивает установленный HEAD с `git ls-remote` fork/master (только чтение, без fetch, таймаут 20 с, без запроса учётных данных). Показывает «No updates found … only repairs and re-verifies» или «update available: X -> Y»; у каждого пункта пометка `[no updates found: repair only]` / `[includes update]` / `[no code updates: registers this client only]`, пункт сервера при отсутствии обновлений называется «Re-verify…». Отдельно: локальная версия новее, не установлен, нет Git/сети (меню не блокируется, действия работают как раньше), локальные изменения → предупреждение о stash. Проверено: parse + clone/Repair/stash/divergence PASS; реальная установка → UpdateAvailable 5722b72 -> a681255; локальный клон на уровне master → «No updates found»; ahead+dirty, отсутствие установки, отсутствие Git и отказ сети (2 с) — ожидаемые статусы.
 
 ## Недостающие входные материалы и ближайшие шаги
 
