@@ -75,6 +75,7 @@ def test_openings_related_to_gaps_and_segments():
     door = next(o for o in openings["openings"] if o["handles"] == ["D1"])
     assert door["gap_matches"][0]["measure"] == "area" and 0 < door["gap_matches"][0]["ratio"] < 1
     assert not door["opening_verified"]
+    assert all(seg["openings_checked"] for seg in r["wall_segment_candidates"]["segments"])
     empty = openings["gaps_without_opening_candidate"]
     assert len(empty) == 1
     gap = next(g for g in openings["gaps"] if g["id"] == empty[0])

@@ -240,6 +240,9 @@ requires human review. Candidate counts are not counts of physical elements.
     if wall_segments["requested"]:
         openings = relate_openings(candidates, wall_segments["segments"], wall_opening_max_width, identity)
         wall_segments["openings"] = openings
+        for segment in wall_segments["segments"]:
+            # Geometric relation checked; the opening itself stays unverified.
+            segment["openings_checked"] = True
         for gap_id in openings["gaps_without_opening_candidate"]:
             gap = next(g for g in openings["gaps"] if g["id"] == gap_id)
             issue("wall_gap_without_opening_candidate", [],
@@ -300,7 +303,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "limitations": [
             "Rule-based naming and primitive geometry only; confidence is not a probability.",
             "Candidates represent source entities, not grouped physical walls or complete building elements.",
-            "Wall faces are paired only when wall_thickness_range is supplied; no opening-to-wall association, floor assignment, or block/xref traversal.",
+            "Wall faces are paired and openings related to them only when wall_thickness_range is supplied; opening sizes/types, floor assignment and block/xref traversal are not determined.",
             "Single straight horizontal contours can have geometric area; floor areas, holes and curved contours remain unverified.",
             "No exterior/interior or load-bearing classification, code checks, or member sizing.",
         ],

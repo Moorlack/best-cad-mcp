@@ -112,7 +112,7 @@ def test_wall_segments_from_named_wall_faces_only():
                                             'mean': pytest.approx(200)}
     assert s['axis_wcs'] == [[0, pytest.approx(100), 0.0], [pytest.approx(5000), pytest.approx(100), 0.0]]
     assert s['structural_role'] == 'unknown'
-    assert not s['physical_wall_verified'] and not s['openings_checked']
+    assert not s['physical_wall_verified'] and s['openings_checked']
     assert s['source_candidate_ids'] == [c['id'] for c in report['candidates'] if c['handles'][0] in ('A', 'B')]
     assert not seg['physical_walls_assembled'] and not report['structural_design_ready']
     generic = pairs(items)
