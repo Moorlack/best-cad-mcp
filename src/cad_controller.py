@@ -194,16 +194,21 @@ class CADController:
     @staticmethod
     def _document_fingerprint(document: Any) -> Dict[str, Any]:
         """Cheap drawing-state identity; edits to existing objects do not change it."""
+        # AutoCAD 2025 refuses GetVariable("HANDSEED"); new entities are appended
+        # to ModelSpace, so the last entity handle is the portable creation marker.
         try:
             handseed = str(document.GetVariable("HANDSEED"))
         except Exception:
             handseed = None
+        count = last_handle = None
         try:
-            count = int(document.ModelSpace.Count)
+            model_space = document.ModelSpace
+            count = int(model_space.Count)
+            last_handle = str(model_space.Item(count - 1).Handle) if count else ""
         except Exception:
-            count = None
+            pass
         return {"name": com_get(document, "Name", ""), "path": com_get(document, "FullName", ""),
-                "model_space_count": count, "handseed": handseed}
+                "model_space_count": count, "last_entity_handle": last_handle, "handseed": handseed}
 
     def active_document_fingerprint(self) -> Optional[Dict[str, Any]]:
         if self.acad is None:

@@ -10,8 +10,9 @@ from src.cad_understanding.architecture import analyze_architectural_drawing
 from src.cad_understanding.geometry_analysis import analyze_geometry
 
 
-def fp(path="C:/a.dwg", count=2, handseed="8B0"):
-    return {"name": "a.dwg", "path": path, "model_space_count": count, "handseed": handseed}
+def fp(path="C:/a.dwg", count=2, last="8AF", handseed="8B0"):
+    return {"name": "a.dwg", "path": path, "model_space_count": count, "last_entity_handle": last,
+            "handseed": handseed}
 
 
 @pytest.mark.parametrize("scanned,live,status,reason", [
@@ -19,8 +20,13 @@ def fp(path="C:/a.dwg", count=2, handseed="8B0"):
     (fp(), None, "unverified", "autocad_document_unavailable"),
     (fp(), fp(path="C:/b.dwg"), "stale", "active_document_differs"),
     (fp(), fp(count=3), "stale", "model_space_object_count_changed"),
+    (fp(), fp(last="8B4"), "stale", "model_space_last_entity_changed"),
     (fp(), fp(handseed="8B5"), "stale", "database_objects_created_since_scan"),
-    (fp(handseed=None), fp(), "unverified", "fingerprint_incomplete"),
+    # AutoCAD 2025 refuses HANDSEED; the remaining fields still decide.
+    (fp(handseed=None), fp(handseed=None), "consistent_with_scan", None),
+    (fp(handseed=None), fp(handseed=None, count=3), "stale", "model_space_object_count_changed"),
+    (fp(last=None), fp(), "unverified", "fingerprint_incomplete"),
+    (fp(count=None), fp(count=None), "unverified", "fingerprint_incomplete"),
     (fp(path="C:/A.DWG"), fp(path="c:\\a.dwg"), "consistent_with_scan", None),
 ])
 def test_compare_fingerprints(scanned, live, status, reason):
@@ -55,8 +61,19 @@ def test_scan_records_fingerprint_and_clearing_removes_it(tmp_path, monkeypatch)
     db, ctrl = _scanned(tmp_path, monkeypatch, _Doc(2, "8B0"))
     stored = db.get_scan_fingerprint()
     assert stored["path"] == "C:/a.dwg" and stored["model_space_count"] == 2
-    assert stored["handseed"] == "8B0" and stored["captured_at"]
-    assert ctrl.active_document_fingerprint() == {k: stored[k] for k in ("name", "path", "model_space_count", "handseed")}
+    assert stored["handseed"] == "8B0" and stored["last_entity_handle"] == "L1" and stored["captured_at"]
+    assert ctrl.active_document_fingerprint() == {
+        k: stored[k] for k in ("name", "path", "model_space_count", "last_entity_handle", "handseed")}
+
+
+def test_fingerprint_without_handseed_uses_last_entity(tmp_path, monkeypatch):
+    doc = _Doc(3, None)
+    doc.GetVariable = lambda name: 4 if name == "INSUNITS" else (_ for _ in ()).throw(RuntimeError("no HANDSEED"))
+    db, ctrl = _scanned(tmp_path, monkeypatch, doc)
+    stored = db.get_scan_fingerprint()
+    assert stored["handseed"] is None and stored["last_entity_handle"] == "L2"
+    assert snapshot_freshness.compare_fingerprints(stored, ctrl.active_document_fingerprint())["status"] == \
+        "consistent_with_scan"
     db.clear_entities()
     assert db.get_scan_fingerprint() is None
 
