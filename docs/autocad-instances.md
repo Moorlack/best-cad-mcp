@@ -43,6 +43,12 @@ Live 2026-09-29: 6c956a5 установлен, выбор TEST2 и remembered_re
 Civil 3D подтверждены. Фикс clear требует отдельного Repair/перезапуска и
 повторения сценария. Проверка не требует записи ни в один DWG.
 
+Повторный live 2026-09-29, установленный fd50a02 — PASS: AutoCAD PID 76332,
+Civil PID 59912; select TEST2 → get_document_info → clear → отказ чтения со
+списком двух экземпляров → повторный select TEST2 → успешное чтение.
+Civil виден как remembered_reference. Данные TEST2 до/после совпали полностью,
+27 объектов, saved=true; ни один DWG не изменялся и не сохранялся.
+
 Живая проверка (обязательно в таком порядке, без записи до подтверждения): Civil 3D с
 рабочим DWG и AutoCAD с TEST2 → `check_runtime_environment(check_autocad=True)`
 должен сообщить о двух экземплярах; `list_autocad_instances` — оба pid и чертежи;
