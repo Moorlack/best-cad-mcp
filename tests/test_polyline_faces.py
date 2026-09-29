@@ -78,6 +78,7 @@ def test_generic_pairs_use_polyline_segments_without_wall_names():
     assert diag["candidate_count"] == 4 and diag["polyline_segments"] == 4
     assert diag["same_polyline_adjacent_pairs"] == 4 and diag["items"] == []
     assert [g["handles"] for g in report["line_networks"]["groups"]] == [["P#0", "P#1", "P#2", "P#3"]]
+    assert report["line_networks"]["groups"][0]["kind"] == "contact_network"  # several parts, not one line
 
 
 def test_wall_diagnostics_and_networks_use_polyline_segments():

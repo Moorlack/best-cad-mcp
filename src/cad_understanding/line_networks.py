@@ -50,7 +50,7 @@ def build_line_networks(candidates, diagnostics, id_prefix="line_network_",
             for p in (g.get('start', g.get('start_point')), g.get('end', g.get('end_point'))):
                 points.append(list(p) + ([0.0] if len(p) == 2 else []))
         groups.append({'id': group_id, 'handles': handles, 'source_candidate_ids': [nodes[h]['id'] for h in handles],
-                       'status': 'candidate', 'kind': 'contact_network' if edges else 'isolated_line',
+                       'status': 'candidate', 'kind': 'contact_network' if edges or len(handles) > 1 else 'isolated_line',
                        'layers': sorted({nodes[h]['layer'] for h in handles}),
                        'bbox_wcs': {'min': [min(p[k] for p in points) for k in range(3)],
                                     'max': [max(p[k] for p in points) for k in range(3)]},
