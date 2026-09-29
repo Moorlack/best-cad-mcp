@@ -1,9 +1,11 @@
 """Compatibility adapter retaining architectural group IDs and response fields."""
 from .line_networks import build_line_networks
+from .wall_lines import select_wall_faces
 
 
 def build_wall_networks(candidates, diagnostics):
-    result = build_line_networks([c for c in candidates if c['category'] == 'wall'], diagnostics,
+    faces, _ = select_wall_faces(candidates)
+    result = build_line_networks(faces, diagnostics,
                                 id_prefix="wall_network_", review_key="requires_architectural_review")
     result['interpretation'] = (
         'Connected source LINE groups under diagnostic tolerance; not physical walls, rooms or load paths.')

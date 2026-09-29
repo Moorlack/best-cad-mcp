@@ -82,9 +82,14 @@ def eligible_lines(candidates):
 
 def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=None,
                    drawing_units="unknown", scope="selected_LINE_entities",
-                   review_key="requires_review"):
+                   review_key="requires_review", extra_excluded=()):
+    from .polyline_parts import adjacent_parts
+
     validate_gap_tolerance(gap_tolerance)
     eligible, excluded = eligible_lines(candidates)
+    excluded = list(extra_excluded) + excluded
+    by_key = {c["handles"][0]: c for c in candidates}
+    parts = sum(1 for key in eligible if by_key[key].get("source"))
     selected_candidates = candidates
     result = {"scope": scope, "candidate_count": len(selected_candidates),
               "eligible_lines": len(eligible), "excluded": excluded,
@@ -97,7 +102,14 @@ def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=No
                              "tolerance_drawing_units": gap_tolerance, "drawing_units": drawing_units,
                              "disjoint_pairs_checked": 0, "candidates": [],
                              "interpretation": "Nearby endpoints only; intended separations are not defects."}}
+    if parts:
+        # Only present when polyline segments take part, so LINE-only reports keep their shape.
+        result["polyline_segments"] = parts
+        result["same_polyline_adjacent_pairs"] = 0
     for ha, hb in combinations(eligible, 2):
+        if parts and adjacent_parts(by_key[ha], by_key[hb]):
+            result["same_polyline_adjacent_pairs"] += 1
+            continue
         relation = _pair(eligible[ha], eligible[hb])
         if relation == "not_verified":
             result["unverified_pairs"].append([ha, hb])

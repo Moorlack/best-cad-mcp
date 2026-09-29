@@ -64,8 +64,19 @@ POLYLINE; для стен — кандидаты wall с формой open/close
 поэтому стена, нарисованная одним замкнутым прямоугольником, даёт участок из его
 длинных сторон. Дуги (bulge ≠ 0) не спрямляются: `arc_segment_not_supported` в
 `excluded`, покрытие становится неполным; без bulge-данных —
-`polyline_bulges_not_captured`. Прежние `wall_line_diagnostics`/`wall_networks`
-и `line_diagnostics` по-прежнему работают только с LINE.
+`polyline_bulges_not_captured`.
+
+С того же дня `wall_line_diagnostics`/`wall_networks` и общие `line_diagnostics`/
+`line_networks` используют те же сегменты (общий выбор граней — `select_wall_faces`):
+дубли, наложения, пересечения и зазоры находятся и между сегментами полилиний.
+Соседние сегменты одной полилинии касаются по построению и в отношения не
+выдаются (счётчик `same_polyline_adjacent_pairs`), но в группах контактов остаются
+связанными. Поля `polyline_segments`/`same_polyline_adjacent_pairs` появляются
+только при наличии сегментов, отчёты по одним LINE не меняются.
+
+Сценарий живой проверки диагностики: к сценарию ниже добавить LINE D
+(11400,2000)–(11500,2000) на A-WALL-TEST → overlap D–O#1, группы
+[D, O#0, O#1], [I#0, I#1], [R#0..R#3], без `wall_line_diagnostics_incomplete`.
 
 MLINE сейчас не поддерживается: scan не сохраняет её вершины и смещения стиля —
 такие объекты остаются в `unclassified` (отдельный пункт backlog).

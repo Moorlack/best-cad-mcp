@@ -72,6 +72,26 @@ def test_generic_pairs_use_polyline_segments_without_wall_names():
     pairs = build_geometry_report(snapshot(items), parallel_separation_range=[4, 12])["parallel_line_pairs"]
     assert pairs["pair_count"] == 1 and pairs["pairs"][0]["handles"] == ["P#0", "P#2"]
     assert pairs["scope"] == "selected_LINE_and_straight_polyline_segments"
-    # Legacy LINE diagnostics are unchanged: polylines are not LINE candidates there.
+    # Diagnostics see the same segments; adjacent sides of one outline are not relations.
     report = build_geometry_report(snapshot(items))
-    assert report["line_diagnostics"]["candidate_count"] == 0
+    diag = report["line_diagnostics"]
+    assert diag["candidate_count"] == 4 and diag["polyline_segments"] == 4
+    assert diag["same_polyline_adjacent_pairs"] == 4 and diag["items"] == []
+    assert [g["handles"] for g in report["line_networks"]["groups"]] == [["P#0", "P#1", "P#2", "P#3"]]
+
+
+def test_wall_diagnostics_and_networks_use_polyline_segments():
+    items = [pline("O", [[0, 300], [0, 0], [500, 0]]), line("D", [100, 0], [200, 0])]  # D overlaps O#1
+    r = build_architectural_report(snapshot(items))
+    diag = r["wall_line_diagnostics"]
+    assert diag["excluded"] == [] and diag["same_polyline_adjacent_pairs"] == 1
+    assert [(i["relation"], i["handles"]) for i in diag["items"]] == [("overlap", ["D", "O#1"])]
+    assert "wall_line_diagnostics_incomplete" not in {i["code"] for i in r["issues"]}
+    groups = r["wall_networks"]["groups"]
+    assert [g["handles"] for g in groups] == [["D", "O#0", "O#1"]]
+
+
+def test_line_only_reports_keep_their_shape():
+    report = build_architectural_report(snapshot([line("A", [0, 0], [10, 0]), line("B", [10, 0], [20, 0])]))
+    assert "polyline_segments" not in report["wall_line_diagnostics"]
+    assert "same_polyline_adjacent_pairs" not in report["wall_line_diagnostics"]

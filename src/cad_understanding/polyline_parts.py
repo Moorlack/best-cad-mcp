@@ -50,8 +50,18 @@ def split_polyline(handle, geometry, base_id, layer="0"):
             continue
         parts.append({"id": f"{base_id}#{i}", "handles": [key], "shape": "line", "excluded_reason": None,
                       "geometry": {"start": list(a), "end": list(b)}, "layer": layer,
-                      "source": {"handle": handle, "segment_index": i}})
+                      "source": {"handle": handle, "segment_index": i,
+                                 "segment_count": count, "closed": closed}})
     return parts, excluded
+
+
+def adjacent_parts(a, b):
+    """True for consecutive segments of one polyline, which touch by construction."""
+    sa, sb = a.get("source") or {}, b.get("source") or {}
+    if not sa or sa.get("handle") != sb.get("handle") or sa.get("segment_index") is None:
+        return False
+    i, j, n = sa["segment_index"], sb["segment_index"], sa.get("segment_count") or 0
+    return abs(i - j) == 1 or (bool(sa.get("closed")) and n > 2 and {i, j} == {0, n - 1})
 
 
 def source_of(key):

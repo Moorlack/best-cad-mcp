@@ -89,8 +89,9 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
     missing = sorted(set(handles or []) - {e.get('handle') for e in selected})
     missing_layers = sorted(set(layers or []) - {e.get('layer') for e in selected})
     incomplete = truncated or bool(identity_errors or missing or missing_layers)
-    diagnostics = diagnose_lines(lines, incomplete, gap_tolerance, drawing.get('units', 'unknown'))
-    networks = build_line_networks(lines, diagnostics)
+    diagnostics = diagnose_lines(lines + polyline_parts, incomplete, gap_tolerance, drawing.get('units', 'unknown'),
+                                 extra_excluded=polyline_excluded)
+    networks = build_line_networks(lines + polyline_parts, diagnostics)
     # Domain-neutral schema; the architectural adapter retains its legacy fields.
     for group in networks['groups']:
         group['source_geometry_ids'] = group.pop('source_candidate_ids')

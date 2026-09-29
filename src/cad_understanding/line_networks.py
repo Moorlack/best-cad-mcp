@@ -15,6 +15,17 @@ def build_line_networks(candidates, diagnostics, id_prefix="line_network_",
         a, b = edge['handles']
         adjacency[a].add(b)
         adjacency[b].add(a)
+    # Segments of one polyline are connected by construction even though their
+    # shared vertices are not reported as relations.
+    by_source = {}
+    for key, node in nodes.items():
+        source = node.get('source')
+        if source:
+            by_source.setdefault(source['handle'], []).append(key)
+    for keys in by_source.values():
+        for a, b in zip(keys, keys[1:]):
+            adjacency[a].add(b)
+            adjacency[b].add(a)
     remaining = set(nodes)
     groups, membership = [], {}
     complete = not (excluded or diagnostics['unverified_pairs']
