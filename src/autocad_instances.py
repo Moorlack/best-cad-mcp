@@ -18,12 +18,20 @@ def _norm(path):
     return os.path.normcase(os.path.normpath(str(path))) if path else ""
 
 
-def choose_instance(instances, pinned_pid=None, document_path=None):
-    """Pure selection over [{pid, documents, ...}]; returns one instance or None when none run."""
+def choose_instance(instances, pinned_pid=None, document_path=None, process_pids=None):
+    """Pure selection over [{pid, documents, ...}]; returns one instance or None when none run.
+
+    process_pids: AutoCAD process ids seen by the OS. Processes that COM enumeration
+    missed (observed live for Civil 3D) still count, so a single reachable instance is
+    not mistaken for the only one.
+    """
     if pinned_pid is not None:
         for inst in instances:
             if inst.get("pid") == pinned_pid:
                 return inst
+        if process_pids and pinned_pid in process_pids:
+            raise RuntimeError(f"AutoCAD process {pinned_pid} is running but not reachable through COM "
+                               "(busy, a modal dialog, or not registered); retry later or choose another.")
         raise RuntimeError(f"The selected AutoCAD process {pinned_pid} is no longer running; "
                            "call select_autocad_instance again.")
     if document_path:
@@ -33,14 +41,37 @@ def choose_instance(instances, pinned_pid=None, document_path=None):
             return matches[0]
         if not matches:
             raise RuntimeError(f"No running AutoCAD instance has {document_path} open.")
-    if len(instances) <= 1:
+    unreachable = sorted(set(process_pids or ()) - {i.get("pid") for i in instances})
+    if len(instances) + len(unreachable) <= 1:
         return instances[0] if instances else None
     listing = "; ".join(
-        f"pid {i.get('pid')}: {', '.join(os.path.basename(d) for d in i.get('documents', [])) or 'no documents'}"
-        for i in instances)
+        [f"pid {i.get('pid')}: {', '.join(os.path.basename(d) for d in i.get('documents', [])) or 'no documents'}"
+         for i in instances]
+        + [f"pid {pid}: not reachable through COM right now" for pid in unreachable])
     raise AmbiguousAutoCADInstances(
-        f"{len(instances)} AutoCAD instances are running ({listing}). Call select_autocad_instance "
-        "with a pid or document_path, or set CAD_MCP_AUTOCAD_DOCUMENT, before working.")
+        f"{len(instances) + len(unreachable)} AutoCAD instances are running ({listing}). Call "
+        "select_autocad_instance with a pid or document_path, or set CAD_MCP_AUTOCAD_DOCUMENT, before working.")
+
+
+def acad_process_pids():
+    """acad.exe process ids from the OS (independent of COM registration); None if unknown."""
+    import subprocess
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq acad.exe", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=10,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    except Exception:
+        return None
+    return parse_tasklist_csv(out)
+
+
+def parse_tasklist_csv(out):
+    pids = set()
+    for line in out.splitlines():
+        cells = [c.strip('"') for c in line.strip().split('","')]
+        if len(cells) > 1 and cells[0].lower() == "acad.exe" and cells[1].isdigit():
+            pids.add(int(cells[1]))
+    return pids
 
 
 def _pid_of(app):

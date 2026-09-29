@@ -138,7 +138,8 @@ class CADController:
         if clear:
             self._pinned_pid = None
             return {"success": True, "pinned_pid": None}
-        chosen = choose_instance(self.running_instances(), pid, document_path)
+        from src.autocad_instances import acad_process_pids
+        chosen = choose_instance(self.running_instances(), pid, document_path, acad_process_pids())
         if chosen is None:
             raise RuntimeError("No running AutoCAD instance was found.")
         self._pinned_pid = chosen["pid"]
@@ -148,7 +149,7 @@ class CADController:
 
     def _get_active_autocad(self):
         """Attach to the intended running AutoCAD; several instances require an explicit choice."""
-        from src.autocad_instances import choose_instance
+        from src.autocad_instances import acad_process_pids, choose_instance
         try:
             instances = self.running_instances()
         except Exception as exc:  # ROT unavailable: keep the historical single-instance behaviour
@@ -157,7 +158,8 @@ class CADController:
         if instances:
             # Raises AmbiguousAutoCADInstances instead of guessing between several instances.
             chosen = choose_instance(instances, getattr(self, "_pinned_pid", None),
-                                     os.environ.get("CAD_MCP_AUTOCAD_DOCUMENT") or None)
+                                     os.environ.get("CAD_MCP_AUTOCAD_DOCUMENT") or None,
+                                     acad_process_pids())
             if chosen is not None:
                 return chosen["app"]
         last_error: Optional[Exception] = None

@@ -1529,15 +1529,19 @@ def get_tool_help(tool_name: Optional[str] = None) -> str:
 
 def list_autocad_instances() -> Dict[str, Any]:
     """Running AutoCAD processes (verticals like Civil 3D included) and their open drawings."""
-    from src.autocad_instances import describe
+    from src.autocad_instances import acad_process_pids, describe
     try:
         instances = describe(ctrl.running_instances())
     except Exception as exc:
         return {"ok": False, "message": f"Could not enumerate AutoCAD instances: {exc}", "instances": []}
-    return {"ok": True, "instances": instances, "count": len(instances),
+    processes = acad_process_pids()
+    unreachable = sorted((processes or set()) - {i["pid"] for i in instances})
+    total = len(instances) + len(unreachable)
+    return {"ok": True, "instances": instances, "count": total,
+            "unreachable_process_pids": unreachable, "os_process_pids": sorted(processes or []),
             "pinned_pid": getattr(ctrl, "_pinned_pid", None),
             "message": ("Several instances are running; select one with select_autocad_instance before "
-                        "live work." if len(instances) > 1 else "At most one AutoCAD instance is running.")}
+                        "live work." if total > 1 else "At most one AutoCAD instance is running.")}
 
 
 def select_autocad_instance(pid: Optional[int] = None, document_path: Optional[str] = None,

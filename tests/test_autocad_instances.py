@@ -84,3 +84,37 @@ def test_tools_report_and_select(ctrl, monkeypatch):
     chosen = utility_tools.select_autocad_instance(document_path=r"C:\Tests\TEST2.dwg")
     assert chosen["ok"] and chosen["pinned_pid"] == 202
     assert utility_tools.select_autocad_instance(pid=999)["ok"] is False
+
+
+def test_process_invisible_to_com_still_makes_choice_ambiguous():
+    with pytest.raises(AmbiguousAutoCADInstances, match="pid 101: not reachable through COM"):
+        choose_instance([ACAD], process_pids={101, 202})
+    assert choose_instance([ACAD], process_pids={202}) is ACAD
+    assert choose_instance([ACAD], pinned_pid=202, process_pids={101, 202}) is ACAD
+    assert choose_instance([ACAD], document_path=r"C:\Tests\TEST2.dwg", process_pids={101, 202}) is ACAD
+
+
+def test_controller_uses_os_process_list(ctrl, monkeypatch):
+    from src import autocad_instances
+    monkeypatch.setattr(CADController, "running_instances", lambda self: [ACAD])
+    monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {101, 202})
+    assert ctrl.connect() is False and "not reachable through COM" in ctrl._last_connect_error
+    monkeypatch.setattr(utility_tools, "ctrl", ctrl)
+    listed = utility_tools.list_autocad_instances()
+    assert listed["count"] == 2 and listed["unreachable_process_pids"] == [101]
+    assert utility_tools.select_autocad_instance(pid=202)["ok"]
+    assert ctrl._get_active_autocad().tag == "acad"
+
+
+def test_tasklist_parsing():
+    from src.autocad_instances import parse_tasklist_csv
+    out = ('"acad.exe","21924","Console","1","2,048,000 K"\r\n'
+           '"acad.exe","104420","Console","1","1,024 K"\r\n'
+           'INFO: No tasks are running which match the specified criteria.\r\n')
+    assert parse_tasklist_csv(out) == {21924, 104420}
+    assert parse_tasklist_csv("") == set()
+
+
+def test_pinned_process_running_but_unreachable_is_explained():
+    with pytest.raises(RuntimeError, match="running but not reachable through COM"):
+        choose_instance([ACAD], pinned_pid=101, process_pids={101, 202})
