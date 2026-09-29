@@ -602,7 +602,8 @@ def draw_xline(point1_x: float, point1_y: float, point1_z: float = 0.0,
 
 
 def draw_mline(points: List[float],
-               layer: Optional[str] = None, color: str = "bylayer") -> str:
+               layer: Optional[str] = None, color: str = "bylayer",
+               scale: Optional[float] = None, justification: Optional[str] = None) -> str:
     """绘制多线（平行双线/三线）。
 
     多线由多条平行的直线段组成，常用于绘制墙体、道路等。
@@ -612,19 +613,28 @@ def draw_mline(points: List[float],
         layer:  图层名称
         color:  颜色
     """
-    if len(points) < 4:
-        return "错误: points 至少需要4个值 (2个坐标点)"
+    from src.mline_options import validate_mline_options
+    if len(points) < 4 or len(points) % 2:
+        return "Error: points must contain complete XY pairs (at least two points)."
+    pts = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
+    try:
+        validate_mline_options(pts, scale, justification)
+    except ValueError as exc:
+        return f"Error: {exc}"
     if layer:
         ctrl.create_layer(layer)
         ctrl.set_current_layer(layer)
-    pts = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
-    mline = ctrl.add_mline(pts)
+    mline = ctrl.add_mline(pts, scale=scale, justification=justification)
+    if isinstance(mline, dict):
+        return f"Error: {mline.get('message', 'MLINE creation failed')}"
     if color != "bylayer":
         try: _com_set(mline, "Color", resolve_color(color))
         except Exception: pass
     db.upsert_entity(mline.Handle, "MLine", "AcDbMLine",
                      layer=mline.Layer, color=_com_get(mline, "Color", 256),
-                     geometry={"vertices": pts})
+                     geometry={"vertices": pts, "mline_scale": _com_get(mline, "MLineScale", None),
+                               "mline_justification": _com_get(mline, "Justification", None),
+                               "mline_style": _com_get(mline, "StyleName", None)})
     return format_success("已绘制多线", handle=mline.Handle,
                           vertices=len(pts))
 

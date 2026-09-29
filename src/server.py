@@ -268,7 +268,9 @@ TOOL_DESCRIPTIONS = {
     ),
     "draw_mline": (
         "Preferred tool for parallel multi-lines such as walls, roads, and "
-        "double-line symbols. Use this instead of drawing separate offset lines."
+        "double-line symbols. Use this instead of drawing separate offset lines. "
+        "Optional scale is positive; justification is top, zero or bottom. "
+        "These set object properties, not CMLSCALE/CMLJUST. Omitted options keep COM defaults."
     ),
     "insert_minsert_block": (
         "Preferred tool for AutoCAD MInsert block arrays: insert one block "
@@ -1448,7 +1450,8 @@ def draw_xline(ctx: Context, point1_x: float, point1_y: float,
 
 @mcp.tool(description=TOOL_DESCRIPTIONS["draw_mline"])
 def draw_mline(ctx: Context, points: List[float],
-                layer: Optional[str] = None, color: str = "bylayer") -> str:
+                layer: Optional[str] = None, color: str = "bylayer",
+                scale: Optional[float] = None, justification: Optional[str] = None) -> str:
     """绘制多线（平行多线，如墙体双线）。
 
     多线由多条平行的直线段组成，可自定义线数、间距和样式。
@@ -1459,7 +1462,7 @@ def draw_mline(ctx: Context, points: List[float],
         layer:  图层名称
         color:  颜色
     """
-    return drawing_tools.draw_mline(points, layer, color)
+    return drawing_tools.draw_mline(points, layer, color, scale=scale, justification=justification)
 
 
 @mcp.tool()

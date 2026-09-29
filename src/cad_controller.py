@@ -1379,13 +1379,32 @@ class CADController:
         return self.doc.ModelSpace.AddXline(p1, p2)
 
     @require_document
-    def add_mline(self, points: List[Tuple[float, float]]):
-        """Add a multi-line. points: list of (x,y) tuples."""
+    def add_mline(self, points: List[Tuple[float, float]], scale=None, justification=None):
+        """Add a multiline, applying explicit object properties without changing sysvars."""
+        from src.mline_options import JUSTIFICATIONS, validate_mline_options
+        validate_mline_options(points, scale, justification)
         flat = []
         for p in points:
             flat.extend([float(p[0]), float(p[1]), 0.0])
         pts_array = to_variant_array(flat)
-        return self.doc.ModelSpace.AddMLine(pts_array)
+        entity = self.doc.ModelSpace.AddMLine(pts_array)
+        try:
+            if scale is not None:
+                com_set(entity, "MLineScale", float(scale))
+                if not math.isclose(float(entity.MLineScale), scale, rel_tol=1e-9):
+                    raise RuntimeError("AutoCAD did not apply MLineScale.")
+            if justification is not None:
+                com_set(entity, "Justification", JUSTIFICATIONS[justification])
+                if int(entity.Justification) != JUSTIFICATIONS[justification]:
+                    raise RuntimeError("AutoCAD did not apply MLINE justification.")
+        except Exception as exc:
+            handle = com_get(entity, "Handle", "unknown")
+            try:
+                entity.Delete()
+            except Exception as cleanup:
+                raise RuntimeError(f"MLINE configuration failed; partial entity {handle} remains: {cleanup}") from exc
+            raise RuntimeError("MLINE configuration failed; new entity removed.") from exc
+        return entity
 
     @require_document
     def add_solid(self, pts: List[Tuple[float,float,float]]) -> Any:
