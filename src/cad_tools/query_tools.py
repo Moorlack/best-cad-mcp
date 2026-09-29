@@ -73,6 +73,10 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     )
     if "error" in result:
         raise RuntimeError(str(result["error"]))
+    # require_document reports a missing AutoCAD/document this way; failing here
+    # keeps the previous cache instead of replacing it with an empty "scan".
+    if result.get("success") is False:
+        raise RuntimeError(str(result.get("message") or "AutoCAD scan failed."))
     drawing = result.get("drawing", {})
     if isinstance(drawing.get("name"), str) and drawing["name"]:
         db.activate_drawing(name=drawing["name"], path=drawing.get("path", ""))
@@ -81,6 +85,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         # Older scan providers lack a document identity: don't attach units
         # to a scope obtained from a separate ActiveDocument lookup.
         result.pop("units_metadata", None)
+        result.pop("scan_fingerprint", None)
     if clear_db:
         db.clear_entities(
             clear_annotations=clear_annotations,
@@ -89,6 +94,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     # Clear old declarations before replacing the entity cache, including failures.
     from src.cad_understanding.drawing_units import unit_metadata
     db.set_drawing_units(unit_metadata())
+    db.set_scan_fingerprint(None)
     entities = result.get("entities", [])
     type_stats = result.get("type_stats", {})
 
@@ -107,6 +113,9 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
         topology_detail=topology_detail,
     )
     db.set_drawing_units(result.get("units_metadata") or unit_metadata())
+    # Only a complete scan can be compared with the live drawing later.
+    if not result.get("truncated") and not errors:
+        db.set_scan_fingerprint(result.get("scan_fingerprint"))
 
     lines = [f"OK: 已扫描 {saved} 个实体并保存到数据库"]
     lines.append(f"\n实体类型统计 ({len(type_stats)} 种):")

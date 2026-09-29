@@ -293,6 +293,28 @@ class CADDatabase:
                 DO UPDATE SET metadata=excluded.metadata
             ''', (ctx.workspace_id, ctx.drawing_id, json.dumps(metadata)))
 
+    def set_scan_fingerprint(self, fingerprint: Optional[Dict[str, Any]]) -> None:
+        ctx = self.get_context()
+        with self._conn() as conn:
+            if fingerprint is None:
+                conn.execute("DELETE FROM cad_scan_fingerprints WHERE workspace_id=? AND drawing_id=?",
+                             (ctx.workspace_id, ctx.drawing_id))
+                return
+            conn.execute('''
+                INSERT INTO cad_scan_fingerprints (workspace_id, drawing_id, metadata)
+                VALUES (?, ?, ?) ON CONFLICT(workspace_id, drawing_id)
+                DO UPDATE SET metadata=excluded.metadata
+            ''', (ctx.workspace_id, ctx.drawing_id, json.dumps(fingerprint)))
+
+    def get_scan_fingerprint(self) -> Optional[Dict[str, Any]]:
+        ctx = self.get_context()
+        with self._conn() as conn:
+            row = conn.execute('''
+                SELECT metadata FROM cad_scan_fingerprints
+                WHERE workspace_id=? AND drawing_id=?
+            ''', (ctx.workspace_id, ctx.drawing_id)).fetchone()
+        return json.loads(row["metadata"]) if row else None
+
     def get_drawing_units(self) -> Dict[str, Any]:
         from src.cad_understanding.drawing_units import unit_metadata
         ctx = self.get_context()
@@ -602,6 +624,15 @@ class CADDatabase:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(workspace_id, drawing_id)
+                )
+            ''')
+
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS cad_scan_fingerprints (
+                    workspace_id TEXT NOT NULL,
+                    drawing_id TEXT NOT NULL,
+                    metadata TEXT NOT NULL,
+                    PRIMARY KEY(workspace_id, drawing_id)
                 )
             ''')
 
@@ -1864,6 +1895,8 @@ class CADDatabase:
             conn.execute(f"DELETE FROM cad_entities WHERE {scope_sql}", scope_params)
             ctx = self.get_context()
             conn.execute("DELETE FROM cad_drawing_units WHERE workspace_id=? AND drawing_id=?",
+                         (ctx.workspace_id, ctx.drawing_id))
+            conn.execute("DELETE FROM cad_scan_fingerprints WHERE workspace_id=? AND drawing_id=?",
                          (ctx.workspace_id, ctx.drawing_id))
             if clear_annotations:
                 thread_sql, thread_params = self._thread_scope_clause()

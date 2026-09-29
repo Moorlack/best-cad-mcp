@@ -136,5 +136,7 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
                                        parallel_separation_range, parallel_angle_tolerance_degrees)
     except ValueError as exc:
         return error_result(str(exc))
+    from .snapshot_freshness import apply_to_report, check_snapshot_freshness
+    freshness_warning = apply_to_report(report, check_snapshot_freshness(database))
     return ok_result('Built domain-neutral geometry report; inspect coverage and limitations.',
-                     data={'report': report}, warnings=['snapshot_freshness_unverified', 'geometry_scale_unverified'])
+                     data={'report': report}, warnings=[freshness_warning, 'geometry_scale_unverified'])

@@ -313,6 +313,12 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     )
     report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance,
                                         wall_thickness_range=wall_thickness_range)
+    from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
+    freshness = check_snapshot_freshness(database)
+    code = apply_to_report(report, freshness)
+    for item in report["issues"]:
+        if item["code"] == "snapshot_freshness_unverified":
+            item.update(code=code, message=MESSAGES[freshness["status"]])
     if reference_lengths is not None:
         report["scale_reference_check"] = check_scale_references(drawing_ir, reference_lengths)
         for check in report["scale_reference_check"]["checks"]:

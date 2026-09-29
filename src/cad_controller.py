@@ -19,6 +19,7 @@ import os
 import shutil
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Optional, List, Tuple, Dict, Any
 from src.cad_utils import DetailLevel, com_get, com_set
 from src.workspace_paths import default_output_dir
@@ -189,6 +190,31 @@ class CADController:
             self.acad = None
             self.doc = None
             return False
+
+    @staticmethod
+    def _document_fingerprint(document: Any) -> Dict[str, Any]:
+        """Cheap drawing-state identity; edits to existing objects do not change it."""
+        try:
+            handseed = str(document.GetVariable("HANDSEED"))
+        except Exception:
+            handseed = None
+        try:
+            count = int(document.ModelSpace.Count)
+        except Exception:
+            count = None
+        return {"name": com_get(document, "Name", ""), "path": com_get(document, "FullName", ""),
+                "model_space_count": count, "handseed": handseed}
+
+    def active_document_fingerprint(self) -> Optional[Dict[str, Any]]:
+        if self.acad is None:
+            # Attach only to a running AutoCAD; this never starts one.
+            self._refresh_active_document()
+        if not self.has_document:
+            return None
+        try:
+            return self._document_fingerprint(self.acad.ActiveDocument)
+        except Exception:
+            return None
 
     @property
     def has_document(self) -> bool:
@@ -3638,6 +3664,8 @@ class CADController:
             "path": com_get(document, "FullName", ""),
         }
         total_available = int(com_get(model_space, "Count", 0) or 0)
+        scan_fingerprint = {**self._document_fingerprint(document),
+                            "captured_at": datetime.now(timezone.utc).isoformat()}
         limit = total_available if max_entities is None else max(0, int(max_entities))
         count = min(total_available, limit)
         entities = []
@@ -3870,6 +3898,7 @@ class CADController:
             "total_available": total_available,
             "drawing": scan_drawing,
             "units_metadata": scan_units,
+            "scan_fingerprint": scan_fingerprint,
             "scanned": count,
             "truncated": count < total_available,
             "detail_level": level,
