@@ -19,3 +19,9 @@ in BACKLOG.md and reuse of general CAD capabilities in other workflows/plugins.
   feasible. Keep Revit and AutoCAD installers/runtimes independent.
 - Follow the agreed live-test workflow: release, user Repair/restart, then test
   the installed MCP. Clearly distinguish checkout tests from installed tests.
+- The AutoCAD installer lives in `installer/SetupMCP AutoCAD.cmd` and updates
+  itself from master. Bump the version in the title, echo and
+  `$script:InstallerVersion` lines together on every change; a change without a
+  bump never reaches existing copies. Keep the payload parseable and the file's
+  bytes unchanged by Git (`.gitattributes`). Keep the user's distribution copy
+  `../MCP AutoCAD/SetupMCP AutoCAD.cmd` identical when it exists.
