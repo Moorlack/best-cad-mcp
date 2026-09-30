@@ -20,7 +20,7 @@ def _summary(fingerprint):
     if not fingerprint:
         return None
     return {k: fingerprint.get(k) for k in ("name", "path", "model_space_count", "last_entity_handle",
-                                           "handseed", "captured_at") if k in fingerprint}
+                                           "handseed", "captured_at", "layer_filter") if k in fingerprint}
 
 
 def compare_fingerprints(scanned, live):
@@ -81,4 +81,12 @@ def apply_to_report(report, freshness):
     """Record the check in report.source; returns the warning code to use."""
     report.setdefault("source", {})["freshness"] = freshness["status"]
     report["source"]["freshness_check"] = freshness
+    layer_filter = (freshness.get("scan") or {}).get("layer_filter")
+    if layer_filter:
+        report["source"]["scan_scope"] = {"layer_filter": layer_filter,
+                                          "note": "Only entities on these layers were scanned."}
+        report.setdefault("issues", []).append({
+            "code": "scan_limited_to_layers", "handles": [],
+            "message": "The scan covered only layers matching " + ", ".join(layer_filter[:10])
+                       + ("..." if len(layer_filter) > 10 else "") + "; other layers are not in this report."})
     return WARNINGS[freshness["status"]]

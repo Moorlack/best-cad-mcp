@@ -126,3 +126,19 @@ def test_drawing_identity_path_uses_full_name_even_when_empty():
     # Unsaved drawing: COM reports the default folder as Path but no FullName.
     assert _drawing_identity_path({"full_name": "", "path": "C:\\Users\\x\\Documents"}) == ""
     assert _drawing_identity_path({"path": "legacy.dwg"}) == "legacy.dwg"
+
+
+def test_layer_filtered_scan_is_visible_in_the_report():
+    from src.cad_understanding.snapshot_freshness import apply_to_report, compare_fingerprints
+
+    scan = {"name": "a.dwg", "path": "C:\a.dwg", "model_space_count": 5, "last_entity_handle": "9",
+            "layer_filter": ["A-WALL*"]}
+    freshness = compare_fingerprints(scan, dict(scan))
+    assert freshness["scan"]["layer_filter"] == ["A-WALL*"]
+    report = {"issues": []}
+    apply_to_report(report, freshness)
+    assert report["source"]["scan_scope"]["layer_filter"] == ["A-WALL*"]
+    assert report["issues"][0]["code"] == "scan_limited_to_layers"
+    plain = {"issues": []}
+    apply_to_report(plain, compare_fingerprints({**scan, "layer_filter": None}, dict(scan)))
+    assert "scan_scope" not in plain["source"] and plain["issues"] == []

@@ -2960,7 +2960,10 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
                       topology_detail: str = "summary",
-                      capture_visual_geometry: bool = True) -> str:
+                      capture_visual_geometry: bool = True,
+                      layers: Optional[List[str]] = None,
+                      architectural_layers_only: bool = False,
+                      max_seconds: Optional[float] = 30.0) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2979,6 +2982,12 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         derive_topology: 是否生成拓扑表。默认生成轻量摘要，便于 agent 识别。
         topology_detail: summary/full/none。summary 只写拓扑摘要，full 写点线面关系。
         capture_visual_geometry: 即使 minimal 扫描也保留精确边界路径；默认开启以支持视觉定位。
+        layers: Scan only entities on these layers (wildcards like "A-WALL*" allowed). Reading costs
+            about 15 ms per entity over COM, so large plans should be scanned by layer.
+        architectural_layers_only: Scan only layers whose names contain an architectural word
+            (wall/door/window/column/slab/room/grid in English, Russian, Ukrainian, German, ...).
+        max_seconds: Stop reading after this many seconds (default 30) and cache what was read as
+            an incomplete scan instead of timing out; None disables the limit.
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,
@@ -2990,6 +2999,9 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         derive_topology=derive_topology,
         topology_detail=topology_detail,
         capture_visual_geometry=capture_visual_geometry,
+        layers=layers,
+        architectural_layers_only=architectural_layers_only,
+        max_seconds=max_seconds,
     )
 
 

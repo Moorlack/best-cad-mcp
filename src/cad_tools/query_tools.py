@@ -60,7 +60,10 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       include_bounding_boxes: bool = True,
                       derive_topology: bool = True,
                       topology_detail: str = "summary",
-                      capture_visual_geometry: bool = True) -> str:
+                      capture_visual_geometry: bool = True,
+                      layers: Optional[List[str]] = None,
+                      architectural_layers_only: bool = False,
+                      max_seconds: Optional[float] = 30.0) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -69,9 +72,13 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     Args:
         clear_db:     是否先清空数据库（默认True）
         max_entities: 最大扫描实体数（默认5000）
+        layers: only entities on these layers (wildcards such as A-WALL* allowed)
+        architectural_layers_only: only layers whose names contain an architectural word
+        max_seconds: stop reading after this long and keep what was read, marked incomplete
     """
     result = ctrl.scan_model_space(
         max_entities,
+        layers=layers, architectural_layers_only=architectural_layers_only, max_seconds=max_seconds,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         capture_visual_geometry=capture_visual_geometry,
@@ -131,6 +138,14 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
             f"(detail_level={result.get('detail_level', detail_level)}, "
             f"truncated={result.get('truncated', False)})."
         )
+    if result.get("layer_filter"):
+        lines.append("Scan limited to layers: " + ", ".join(result["layer_filter"][:20])
+                     + (" ..." if len(result["layer_filter"]) > 20 else "")
+                     + ". Entities on other layers are not in the cache.")
+    if result.get("time_budget_exceeded"):
+        lines.append(f"Stopped after {max_seconds} s with {result.get('scanned')} of "
+                     f"{result.get('total_available')} entities read; the cache is incomplete. "
+                     "Use layers=[...] or architectural_layers_only=true, or raise max_seconds.")
     if errors:
         lines.append(f"Skipped {errors} entities that returned scan errors.")
     if not derive_topology:

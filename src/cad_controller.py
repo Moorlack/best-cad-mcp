@@ -3883,11 +3883,64 @@ class CADController:
                 if offsets:
                     info["mline_style_offsets"] = offsets
 
+    def _architectural_layer_names(self, document) -> List[str]:
+        """Layers whose names contain a known architectural word (see name_profiles)."""
+        from src.cad_understanding.name_profiles import build_rules, tokens
+
+        vocabulary = set().union(*build_rules().values())
+        names = []
+        layers = document.Layers
+        for index in range(int(layers.Count)):
+            name = com_get(layers.Item(index), "Name", "")
+            if isinstance(name, str) and name and tokens(name) & vocabulary:
+                names.append(name)
+        return names
+
+    def _select_layer_entities(self, document, patterns):
+        """(items, count) of model-space entities on layers matching the wildcard patterns.
+
+        AutoCAD filters natively when the model tab is active; otherwise the layers are matched here.
+        """
+        import fnmatch
+
+        if int(com_get(document, "ActiveSpace", 1) or 1) == 1:
+            selection_set = None
+            try:
+                try:
+                    document.SelectionSets.Item("MCP_SCAN_LAYERS_SS").Delete()
+                except Exception:
+                    pass
+                selection_set = document.SelectionSets.Add("MCP_SCAN_LAYERS_SS")
+                selection_set.Select(
+                    5, None, None,
+                    win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I2, [8]),
+                    win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, [",".join(patterns)]))
+                items = [selection_set.Item(i) for i in range(int(selection_set.Count))]
+                return items, len(items)
+            finally:
+                if selection_set is not None:
+                    try:
+                        selection_set.Delete()
+                    except Exception:
+                        pass
+        lowered = [p.lower() for p in patterns]
+        model_space = document.ModelSpace
+        items = []
+        for index in range(int(model_space.Count)):
+            entity = model_space.Item(index)
+            layer = str(com_get(entity, "Layer", "")).lower()
+            if any(fnmatch.fnmatchcase(layer, p) for p in lowered):
+                items.append(entity)
+        return items, len(items)
+
     @require_document
     def scan_model_space(self, max_entities: int = 10000,
                          detail_level: str = DetailLevel.MINIMAL,
                          include_bounding_boxes: bool = True,
-                         capture_visual_geometry: bool = False) -> Dict[str, Any]:
+                         capture_visual_geometry: bool = False,
+                         layers: Optional[List[str]] = None,
+                         architectural_layers_only: bool = False,
+                         max_seconds: Optional[float] = None) -> Dict[str, Any]:
         """Scan model space with a large-drawing friendly default.
 
         minimal: handle/type/layer, optionally bbox. Set capture_visual_geometry
@@ -3912,8 +3965,21 @@ class CADController:
         total_available = int(com_get(model_space, "Count", 0) or 0)
         scan_fingerprint = {**self._document_fingerprint(document),
                             "captured_at": datetime.now(timezone.utc).isoformat()}
+        layer_patterns = [str(p) for p in (layers or []) if str(p).strip()]
+        if architectural_layers_only:
+            layer_patterns += self._architectural_layer_names(document)
+        layer_patterns = list(dict.fromkeys(layer_patterns))
+        selected_items = None
+        if layers is not None or architectural_layers_only:
+            if not layer_patterns:
+                return {"success": False, "message": "No layers to scan: pass layers or use "
+                        "architectural_layers_only on a drawing with architectural layer names."}
+            selected_items, total_available = self._select_layer_entities(document, layer_patterns)
+            scan_fingerprint["layer_filter"] = layer_patterns
         limit = total_available if max_entities is None else max(0, int(max_entities))
         count = min(total_available, limit)
+        deadline = (time.monotonic() + float(max_seconds)) if max_seconds else None
+        timed_out = False
         entities = []
         type_stats = {}
         block_definition_cache = {}
@@ -3921,8 +3987,11 @@ class CADController:
         read_geometry = level in {DetailLevel.STANDARD, DetailLevel.FULL}
 
         for i in range(count):
+            if deadline is not None and time.monotonic() > deadline:
+                timed_out = True
+                break
             try:
-                ent = model_space.Item(i)
+                ent = selected_items[i] if selected_items is not None else model_space.Item(i)
                 obj_name = com_get(ent, "ObjectName", "Unknown")
                 type_stats[obj_name] = type_stats.get(obj_name, 0) + 1
                 info = {
@@ -4174,13 +4243,15 @@ class CADController:
         self._attach_mline_style_offsets(document, entities)
         return {
             "entities": entities,
-            "total": count,
+            "total": len(entities),
             "total_available": total_available,
             "drawing": scan_drawing,
             "units_metadata": scan_units,
             "scan_fingerprint": scan_fingerprint,
-            "scanned": count,
-            "truncated": count < total_available,
+            "scanned": len(entities),
+            "truncated": len(entities) < total_available,
+            "time_budget_exceeded": timed_out,
+            "layer_filter": layer_patterns or None,
             "detail_level": level,
             "capture_visual_geometry": bool(capture_visual_geometry),
             "type_stats": type_stats,

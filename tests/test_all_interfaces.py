@@ -2927,6 +2927,7 @@ class TestScanToolBugs(unittest.TestCase):
             detail_level="minimal",
             include_bounding_boxes=True,
             capture_visual_geometry=True,
+            layers=None, architectural_layers_only=False, max_seconds=30.0,
         )
         mock_db.upsert_entity.assert_not_called()
         mock_db.upsert_entities_batch.assert_called_once()
