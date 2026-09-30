@@ -11,7 +11,7 @@ from src.cad_tools import drawing_tools
 @pytest.fixture
 def setup(monkeypatch):
     entity = SimpleNamespace(Handle='ABC', Layer='TEST', MLineScale=1., Justification=1,
-                             StyleName='STANDARD', Delete=Mock())
+                             StyleName='STANDARD', Delete=Mock(), Update=Mock())
     add = Mock(return_value=entity)
     doc = SimpleNamespace(ModelSpace=SimpleNamespace(AddMLine=add))
     ctrl = object.__new__(CADController)
@@ -82,3 +82,19 @@ def test_tool_forwards_and_caches_actual_properties(setup, monkeypatch):
     drawing_tools.draw_mline([0, 0, 10, 0], scale=8, justification='top')
     geometry = database.upsert_entity.call_args.kwargs['geometry']
     assert geometry['mline_scale'] == 8 and geometry['mline_justification'] == 0
+
+
+def test_display_geometry_is_refreshed_only_when_properties_were_set(setup):
+    ctrl, entity, _ = setup
+    ctrl.add_mline([(0, 0), (10, 0)])
+    entity.Update.assert_not_called()
+    ctrl.add_mline([(0, 0), (10, 0)], scale=8)
+    entity.Update.assert_called_once()
+
+
+def test_failed_refresh_keeps_the_valid_entity(setup, caplog):
+    ctrl, entity, _ = setup
+    entity.Update.side_effect = RuntimeError('busy')
+    assert ctrl.add_mline([(0, 0), (10, 0)], justification='top') is entity
+    entity.Delete.assert_not_called()
+    assert 'display refresh failed' in caplog.text

@@ -1404,6 +1404,14 @@ class CADController:
             except Exception as cleanup:
                 raise RuntimeError(f"MLINE configuration failed; partial entity {handle} remains: {cleanup}") from exc
             raise RuntimeError("MLINE configuration failed; new entity removed.") from exc
+        if scale is not None or justification is not None:
+            # AutoCAD keeps the previous display geometry (e.g. GetBoundingBox) of an MLINE
+            # whose properties were set through COM until it is regenerated; ask for a refresh.
+            # The entity is already valid, so a failing update is logged and never deletes it.
+            try:
+                entity.Update()
+            except Exception as exc:
+                logger.warning("MLINE %s display refresh failed: %s", com_get(entity, "Handle", "?"), exc)
         return entity
 
     @require_document
