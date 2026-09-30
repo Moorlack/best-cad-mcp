@@ -18,8 +18,12 @@ def _param(point, origin, unit):
     return (point[0] - origin[0]) * unit[0] + (point[1] - origin[1]) * unit[1]
 
 
-def _cluster(points, tolerance):
-    """Union points closer than tolerance; returns (labels, cluster centres)."""
+def _cluster(points, tolerance, anchors=()):
+    """Union points closer than tolerance; returns (labels, cluster centres).
+
+    A cluster containing anchor points (junction points, where axes meet exactly) is centred on
+    their mean; otherwise on the mean of all its points.
+    """
     parent = list(range(len(points)))
 
     def find(i):
@@ -36,12 +40,19 @@ def _cluster(points, tolerance):
     labels = []
     for i in range(len(points)):
         labels.append(roots.setdefault(find(i), len(roots)))
-    centres = [[0.0, 0.0, 0] for _ in roots]
+    sums = {}
     for i, label in enumerate(labels):
-        centres[label][0] += points[i][0]
-        centres[label][1] += points[i][1]
-        centres[label][2] += 1
-    return labels, [(c[0] / c[2], c[1] / c[2]) for c in centres]
+        entry = sums.setdefault(label, {"all": [0.0, 0.0, 0], "anchor": [0.0, 0.0, 0]})
+        for key in ("all", "anchor") if i in anchors else ("all",):
+            entry[key][0] += points[i][0]
+            entry[key][1] += points[i][1]
+            entry[key][2] += 1
+    centres = []
+    for label in range(len(roots)):
+        entry = sums[label]
+        total = entry["anchor"] if entry["anchor"][2] else entry["all"]
+        centres.append((total[0] / total[2], total[1] / total[2]))
+    return labels, centres
 
 
 def find_room_loops(segments, junctions, gaps=None, tolerance=None):
@@ -66,6 +77,8 @@ def find_room_loops(segments, junctions, gaps=None, tolerance=None):
             for sid in junction.get("segment_ids", []):
                 if sid in on_axis:
                     on_axis[sid].append((point[0], point[1]))
+    junction_points = {(j["point_wcs"][0], j["point_wcs"][1]) for j in junctions
+                       if j.get("kind") in {"corner", "t_junction", "crossing"} and j.get("point_wcs")}
     gap_edges = []
     for gap in gaps or []:
         ends = (tuple(gap["start_wcs"][:2]), tuple(gap["end_wcs"][:2]))
@@ -74,16 +87,16 @@ def find_room_loops(segments, junctions, gaps=None, tolerance=None):
             if sid in on_axis:
                 on_axis[sid].extend(ends)
 
-    all_points, owners = [], []
+    all_points, anchors = [], set()
     for sid, points in on_axis.items():
-        for p in points:
+        for index, p in enumerate(points):
+            if index >= 2 and (p[0], p[1]) in junction_points:
+                anchors.add(len(all_points))
             all_points.append(p)
-            owners.append(("axis", sid))
     for gap_id, ends in gap_edges:
         for p in ends:
             all_points.append(p)
-            owners.append(("gap", gap_id))
-    labels, centres = _cluster(all_points, tol)
+    labels, centres = _cluster(all_points, tol, anchors)
 
     edges = {}  # frozenset({u, v}) -> {"segments": set, "gaps": set}
 

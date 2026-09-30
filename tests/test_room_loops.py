@@ -33,10 +33,10 @@ def test_four_walls_enclose_one_loop_with_axis_area():
     result = find_room_loops(segments, junctions_for(segments))
     assert result["loop_count"] == 1
     loop = result["loops"][0]
-    assert loop["area_drawing_units_squared"] == pytest.approx(1000 * 1000, rel=0.02)
+    assert loop["area_drawing_units_squared"] == pytest.approx(1000 * 1000, rel=0.001)
     assert loop["segment_ids"] == ["E", "N", "S", "W"] and loop["closed_through_opening_gap"] is False
     assert loop["room_confirmed"] is False and result["area_basis"] == "wall_axis_polygon"
-    assert loop["perimeter_drawing_units"] == pytest.approx(4000, rel=0.02)
+    assert loop["perimeter_drawing_units"] == pytest.approx(4000, rel=0.001)
 
 
 def test_partition_wall_splits_the_loop_into_two_with_t_junctions():
@@ -44,7 +44,7 @@ def test_partition_wall_splits_the_loop_into_two_with_t_junctions():
     result = find_room_loops(segments, junctions_for(segments))
     assert result["loop_count"] == 2
     areas = sorted(loop["area_drawing_units_squared"] for loop in result["loops"])
-    assert areas[0] == pytest.approx(500 * 1000, rel=0.03) and areas[1] == pytest.approx(500 * 1000, rel=0.03)
+    assert areas[0] == pytest.approx(500 * 1000, rel=0.001) and areas[1] == pytest.approx(500 * 1000, rel=0.001)
     assert all("P" in loop["segment_ids"] for loop in result["loops"])
 
 
@@ -57,7 +57,7 @@ def test_open_layout_needs_the_opening_gap_to_close_a_loop():
     assert result["loop_count"] == 1
     loop = result["loops"][0]
     assert loop["closed_through_opening_gap"] is True and loop["opening_gap_ids"] == ["gap1"]
-    assert loop["area_drawing_units_squared"] == pytest.approx(1000 * 1000, rel=0.02)
+    assert loop["area_drawing_units_squared"] == pytest.approx(1000 * 1000, rel=0.001)
 
 
 def test_too_few_axes_and_dangling_walls_give_no_loops():
