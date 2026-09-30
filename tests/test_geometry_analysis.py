@@ -116,3 +116,9 @@ def test_limits_and_truncated_snapshot_expose_partial_results():
     ir = snapshot([line('A', [0, 0], [1, 0])])
     ir['sections']['entities']['truncated'] = True
     assert not build_geometry_report(ir)['line_networks']['coverage_complete']
+
+
+def test_line_without_stored_geometry_reports_geometry_not_captured():
+    ir = snapshot([line('A', [0, 0], [1, 0]), {'handle': 'B', 'entity_type': 'AcDbLine', 'layer': '0', 'geometry': {}}])
+    r = build_geometry_report(ir)
+    assert r['line_diagnostics']['excluded'] == [{'handle': 'B', 'reason': 'geometry_not_captured'}]

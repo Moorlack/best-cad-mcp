@@ -274,6 +274,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 live PASS import_dxf (Claude, установленный `5a8c498` c upstream v1.7.2, AutoCAD PID 34792): DXF из 2 LINE + 1 CIRCLE (рукописный ASCII, вне репозитория) → `import_dxf(allow_modify=true)` создал отдельный несохранённый Drawing1.dwg, entity_count=3, saved=false; TEST2 не открывался для записи (после импорта активен Drawing1, прямой повторный get_document_info TEST2 не делался). scan_all_entities (по умолчанию) → 3 объекта, analyze_geometry: extents (0,0)–(100,50), units mm, freshness consistent_with_scan, 2 eligible LINE, endpoint_joint 82–83, contact_network. Наблюдение: при скане с capture_visual_geometry=false analyze_geometry пишет для LINE причину `invalid_coordinates` (геометрия не сохранена) — формулировка вводит в заблуждение; кандидат: причина `geometry_not_captured`. Также `select_autocad_instance(document_path=…)` не активирует документ — активным остаётся последний (для смены нужен activate_workspace_drawing/open). Drawing1.dwg остался открытым несохранённым.
 
+- [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): `analyze_geometry` для LINE без сохранённой геометрии (скан с capture_visual_geometry=false) теперь даёт причину исключения `geometry_not_captured`, а `invalid_coordinates` остаётся только для непригодных значений (inf/NaN и т.п.). 750 тестов (+1), ruff PASS. Live: scan с capture_visual_geometry=false → analyze_geometry должен показать geometry_not_captured.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы

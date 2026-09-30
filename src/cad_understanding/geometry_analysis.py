@@ -32,6 +32,12 @@ def _selection(values, name):
         raise ValueError(f"{name} must be a nonempty list of up to 1000 unique nonblank strings.")
 
 
+def _line_exclusion_reason(geometry):
+    """No endpoint keys at all means the scan did not store geometry; otherwise the values are bad."""
+    keys = ('start', 'start_point', 'end', 'end_point')
+    return 'invalid_coordinates' if any(k in geometry for k in keys) else 'geometry_not_captured'
+
+
 def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=None,
                           reference_lengths=None, parallel_separation_range=None,
                           parallel_angle_tolerance_degrees=None, junction_tolerance=None):
@@ -70,7 +76,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
             good = _point(g.get('start', g.get('start_point'))) and _point(g.get('end', g.get('end_point')))
             lines.append({'id': 'geom_' + hashlib.sha256((identity+'\0'+h).encode()).hexdigest()[:20],
                           'handles': [h], 'shape': 'line' if good else 'unsupported',
-                          'excluded_reason': None if good else 'invalid_coordinates',
+                          'excluded_reason': None if good else _line_exclusion_reason(g),
                           'geometry': deepcopy(g), 'layer': entity.get('layer', '0')})
         elif kinds & {'polyline', '2dpolyline', 'lwpolyline'}:
             parts, skipped = split_polyline(
