@@ -3791,7 +3791,8 @@ class CADController:
             return None
 
     BLOCK_DEFINITION_LIMIT = 100
-    BLOCK_DEFINITION_ENTITY_LIMIT = 200
+    BLOCK_DEFINITION_ENTITY_LIMIT = 500
+    BLOCK_DEFINITION_LINE_LIMIT = 300
     BLOCK_DEFINITION_ARC_LIMIT = 16
 
     def _scan_block_definition_arcs(self, document, block_name, cache):
@@ -3812,10 +3813,19 @@ class CADController:
             if not (com_get(definition, "IsXRef", False) or com_get(definition, "IsLayout", False)):
                 total = int(com_get(definition, "Count", 0) or 0)
                 scanned = min(total, self.BLOCK_DEFINITION_ENTITY_LIMIT)
-                arcs = []
+                arcs, lines = [], []
                 for index in range(scanned):
                     entity = definition.Item(index)
-                    if com_get(entity, "ObjectName", "") != "AcDbArc":
+                    kind = com_get(entity, "ObjectName", "")
+                    if kind == "AcDbLine":
+                        if len(lines) < self.BLOCK_DEFINITION_LINE_LIMIT:
+                            start = self._scan_point(com_get(entity, "StartPoint", None))
+                            end = self._scan_point(com_get(entity, "EndPoint", None))
+                            if start and end:
+                                lines.append({"start": start, "end": end,
+                                              "layer": str(com_get(entity, "Layer", "0"))})
+                        continue
+                    if kind != "AcDbArc":
                         continue
                     arc = {key: self._scan_point(com_get(entity, prop, None))
                            for key, prop in (("center", "Center"), ("start", "StartPoint"),
@@ -3824,7 +3834,7 @@ class CADController:
                         arcs.append({k: v for k, v in arc.items() if v})
                         if len(arcs) >= self.BLOCK_DEFINITION_ARC_LIMIT:
                             break
-                result = {"arcs": arcs, "entity_count": total, "truncated": total > scanned,
+                result = {"arcs": arcs, "lines": lines, "entity_count": total, "truncated": total > scanned,
                           "origin": self._scan_point(com_get(definition, "Origin", None))}
         except Exception:
             logger.debug("Could not read block definition %s", block_name, exc_info=True)

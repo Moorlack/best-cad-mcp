@@ -66,3 +66,56 @@ def test_too_few_axes_and_dangling_walls_give_no_loops():
     segments = square()[:3] + [seg("D", (0, 500, 0), (200, 500, 0))]
     assert find_room_loops(segments, junctions_for(segments))["loop_count"] == 0
     assert find_room_loops([], [])["loop_count"] == 0
+
+
+def test_net_area_insets_each_edge_by_half_the_wall_thickness():
+    segments = square()
+    (loop,) = find_room_loops(segments, junctions_for(segments))["loops"]
+    assert loop["area_drawing_units_squared"] == pytest.approx(1000 * 1000, rel=0.001)
+    assert loop["net_area_drawing_units_squared"] == pytest.approx(992 * 992, rel=0.001)
+    xs = sorted({round(p[0]) for p in loop["net_polygon_wcs"]})
+    assert xs == [4, 996]
+    assert loop["net_area_basis"].startswith("axis polygon moved inward")
+    assert loop["columns_inside"] == []
+
+
+def test_net_area_handles_partition_walls_and_different_thicknesses():
+    segments = square() + [seg("P", (500, 4, 0), (500, 996, 0), thickness=20.0)]
+    result = find_room_loops(segments, junctions_for(segments))
+    areas = sorted(loop["net_area_drawing_units_squared"] for loop in result["loops"])
+    # Left room: 1000 wide axis box inset 4 on the outer walls and 10 at the partition -> 486 x 992.
+    assert areas[0] == pytest.approx(486 * 992, rel=0.002) and areas[1] == pytest.approx(486 * 992, rel=0.002)
+
+
+def test_columns_inside_a_loop_are_subtracted_from_the_net_area():
+    import math
+
+    segments = square()
+    columns = [
+        {"handles": ["C1"], "shape": "circle", "geometry": {"radius": 10.0},
+         "bbox": {"center": [250.0, 500.0], "width": 20.0, "height": 20.0}},
+        {"handles": ["C2"], "shape": "closed_polyline", "boundary_check": {
+            "status": "valid_simple_polygon", "geometric_area_drawing_units_squared": 400.0},
+         "bbox": {"center": [700.0, 300.0], "width": 20.0, "height": 20.0}},
+        {"handles": ["OUT"], "shape": "circle", "geometry": {"radius": 5.0},
+         "bbox": {"center": [5000.0, 5000.0], "width": 10.0, "height": 10.0}},
+        {"handles": ["BAD"], "shape": "block_reference", "bbox": {}},
+    ]
+    (loop,) = find_room_loops(segments, junctions_for(segments), columns=columns)["loops"]
+    assert [c["handle"] for c in loop["columns_inside"]] == ["C1", "C2"]
+    assert loop["columns_inside"][0]["area_basis"] == "circle"
+    net = loop["net_area_drawing_units_squared"]
+    assert loop["net_area_minus_columns_drawing_units_squared"] == pytest.approx(net - math.pi * 100 - 400)
+
+
+def test_loop_inside_another_loop_is_reported_as_an_enclosed_void():
+    outer = square(2000)
+    inner = [seg("IS", (904, 1000, 0), (1096, 1000, 0)), seg("IE", (1100, 1004, 0), (1100, 1196, 0)),
+             seg("IN", (1096, 1200, 0), (904, 1200, 0)), seg("IW", (900, 1196, 0), (900, 1004, 0))]
+    segments = outer + inner
+    loops = find_room_loops(segments, junctions_for(segments))["loops"]
+    big = max(loops, key=lambda loop: loop["area_drawing_units_squared"])
+    small = min(loops, key=lambda loop: loop["area_drawing_units_squared"])
+    assert len(loops) == 2 and big["enclosed_loop_ids"] == [small["id"]] and small["enclosed_loop_ids"] == []
+    assert big["net_area_minus_enclosed_loops_drawing_units_squared"] == pytest.approx(
+        big["net_area_drawing_units_squared"] - small["area_drawing_units_squared"])

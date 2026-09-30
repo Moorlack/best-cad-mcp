@@ -62,8 +62,79 @@ def _cluster(points, tolerance, anchors=()):
     return labels, centres
 
 
-def find_room_loops(segments, junctions, gaps=None, tolerance=None):
-    """Bounded faces of the wall-axis graph; segments need id, axis_wcs and thickness_drawing_units."""
+def _inset_polygon(points, distances):
+    """Polygon moved inward (left of each counter-clockwise edge) by a distance per edge; None if unusable.
+
+    Consecutive edges are intersected (mitre); collinear neighbours with different distances keep a small
+    step. The result must stay a smaller, positive-area polygon or it is rejected.
+    """
+    n = len(points)
+    lines = []
+    for i in range(n):
+        (x0, y0), (x1, y1) = points[i], points[(i + 1) % n]
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length <= 0:
+            return None
+        ux, uy = (x1 - x0) / length, (y1 - y0) / length
+        nx, ny = -uy, ux
+        d = distances[i]
+        lines.append(((x0 + nx * d, y0 + ny * d), (ux, uy), (nx, ny), d))
+    out = []
+    for i in range(n):
+        (p1, u1, n1, d1), (p2, u2, n2, d2) = lines[i - 1], lines[i]
+        cross = u1[0] * u2[1] - u1[1] * u2[0]
+        vertex = points[i]
+        if abs(cross) < 1e-9:
+            out.append((vertex[0] + n1[0] * d1, vertex[1] + n1[1] * d1))
+            if abs(d1 - d2) > 1e-12:
+                out.append((vertex[0] + n2[0] * d2, vertex[1] + n2[1] * d2))
+            continue
+        t = ((p2[0] - p1[0]) * u2[1] - (p2[1] - p1[1]) * u2[0]) / cross
+        out.append((p1[0] + u1[0] * t, p1[1] + u1[1] * t))
+    area = math.fsum(out[i][0] * out[(i + 1) % len(out)][1] - out[(i + 1) % len(out)][0] * out[i][1]
+                     for i in range(len(out))) / 2
+    return out, area
+
+
+def _inside(point, polygon):
+    x, y = point
+    inside = False
+    for i in range(len(polygon)):
+        (x0, y0), (x1, y1) = polygon[i], polygon[(i + 1) % len(polygon)]
+        if (y0 > y) != (y1 > y) and x < (x1 - x0) * (y - y0) / (y1 - y0) + x0:
+            inside = not inside
+    return inside
+
+
+def _column_footprints(columns):
+    """[{handle, center, area, area_basis}] from column candidates; unusable ones are skipped."""
+    found = []
+    for candidate in columns or []:
+        box = candidate.get("bbox") or {}
+        try:
+            center = [float(v) for v in box["center"][:2]]
+            width, height = float(box["width"]), float(box["height"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        geometry = candidate.get("geometry") or {}
+        check = candidate.get("boundary_check") or {}
+        if candidate.get("shape") == "circle" and isinstance(geometry.get("radius"), (int, float)):
+            area, basis = math.pi * geometry["radius"] ** 2, "circle"
+        elif check.get("status") == "valid_simple_polygon":
+            area, basis = check["geometric_area_drawing_units_squared"], "closed_contour"
+        else:
+            area, basis = width * height, "bounding_box"
+        if area > 0 and candidate.get("handles"):
+            found.append({"handle": candidate["handles"][0], "center": center, "area": area, "area_basis": basis})
+    return found
+
+
+def find_room_loops(segments, junctions, gaps=None, tolerance=None, columns=None):
+    """Bounded faces of the wall-axis graph; segments need id, axis_wcs and thickness_drawing_units.
+
+    Each loop also gets a net area (axis polygon moved inward by half of each bounding wall's thickness) and
+    the column candidates whose centre lies inside it (footprints subtracted from the net area).
+    """
     usable = [s for s in segments if len(s.get("axis_wcs", [])) == 2
               and math.dist(s["axis_wcs"][0][:2], s["axis_wcs"][1][:2]) > 0][:MAX_LOOP_AXES]
     result = {"requested": True, "loops": [], "loop_count": 0, "area_basis": "wall_axis_polygon",
@@ -163,6 +234,9 @@ def find_room_loops(segments, junctions, gaps=None, tolerance=None):
             faces.append(face)
 
     extent = max(max(abs(c[0]) + abs(c[1]) for c in centres), 1.0)
+    width_of = {s["id"]: float(s["thickness_drawing_units"]["max"]) for s in usable}
+    gap_width = {g["id"]: float(g.get("thickness_drawing_units") or 0.0) for g in (gaps or [])}
+    footprints = _column_footprints(columns)
     loops = []
     for face in faces:
         if len(face) < 3:
@@ -174,12 +248,15 @@ def find_room_loops(segments, junctions, gaps=None, tolerance=None):
             continue  # the outer face is clockwise/negative here; slivers are ignored
         used_segments, used_gaps = set(), set()
         perimeter = 0.0
+        half_widths = []
         for i, vertex in enumerate(face):
             nxt = face[(i + 1) % len(face)]
             entry = edges[frozenset((vertex, nxt))]
             used_segments |= entry["segments"]
             used_gaps |= entry["gaps"]
             perimeter += math.dist(centres[vertex], centres[nxt])
+            widths = [width_of[s] for s in entry["segments"]] + [gap_width[g] for g in entry["gaps"]]
+            half_widths.append(max(widths) / 2.0 if widths else 0.0)
         polygon = [[centres[v][0], centres[v][1]] for v in face]
         key = "\0".join(sorted(used_segments) + ["|"] + sorted(used_gaps))
         loops.append({"id": "room_loop_" + hashlib.sha256(key.encode()).hexdigest()[:20],
@@ -188,6 +265,32 @@ def find_room_loops(segments, junctions, gaps=None, tolerance=None):
                       "segment_ids": sorted(used_segments), "opening_gap_ids": sorted(used_gaps),
                       "closed_through_opening_gap": bool(used_gaps), "status": "candidate",
                       "room_confirmed": False, "requires_architectural_review": True})
+        inset = _inset_polygon([tuple(p) for p in polygon], half_widths)
+        if inset and 0 < inset[1] < area:
+            loops[-1]["net_area_drawing_units_squared"] = inset[1]
+            loops[-1]["net_polygon_wcs"] = [list(p) for p in inset[0]]
+            loops[-1]["net_area_basis"] = "axis polygon moved inward by half of each bounding wall thickness"
+        else:
+            loops[-1]["net_area_drawing_units_squared"] = None
+            loops[-1]["net_area_basis"] = "not_computed"
+        inside = [f for f in footprints if _inside(f["center"], [tuple(p) for p in polygon])]
+        loops[-1]["columns_inside"] = [{"handle": f["handle"], "area": f["area"], "area_basis": f["area_basis"]}
+                                       for f in inside]
+        net = loops[-1]["net_area_drawing_units_squared"]
+        loops[-1]["net_area_minus_columns_drawing_units_squared"] = (
+            max(0.0, net - math.fsum(f["area"] for f in inside)) if net is not None else None)
+    # A loop that lies entirely inside another (sharing no wall) is a void of the outer one, e.g. a shaft.
+    for outer in loops:
+        outer_polygon = [tuple(p) for p in outer["polygon_wcs"]]
+        enclosed = [inner for inner in loops if inner is not outer
+                    and not set(inner["segment_ids"]) & set(outer["segment_ids"])
+                    and inner["area_drawing_units_squared"] < outer["area_drawing_units_squared"]
+                    and all(_inside(tuple(p), outer_polygon) for p in inner["polygon_wcs"])]
+        outer["enclosed_loop_ids"] = sorted(inner["id"] for inner in enclosed)
+        if enclosed and outer["net_area_drawing_units_squared"] is not None:
+            outer["net_area_minus_enclosed_loops_drawing_units_squared"] = max(
+                0.0, outer["net_area_drawing_units_squared"]
+                - math.fsum(inner["area_drawing_units_squared"] for inner in enclosed))
     loops.sort(key=lambda loop: (loop["id"]))
     result.update(loops=loops, loop_count=len(loops))
     return result

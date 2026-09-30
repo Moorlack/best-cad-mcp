@@ -17,7 +17,7 @@ ARCHITECTURE_LIST_PATHS = (
     "candidates", "unclassified", "boundary_checks", "block_annotations.items",
     "wall_line_diagnostics.items", "wall_line_diagnostics.excluded", "wall_networks.groups",
     "wall_segment_candidates.segments", "wall_segment_candidates.junctions.junctions",
-    "wall_segment_candidates.runs", "wall_segment_candidates.openings.gaps",
+    "wall_segment_candidates.runs", "wall_segment_candidates.plan_clusters.clusters", "wall_segment_candidates.openings.gaps",
     "wall_segment_candidates.openings.openings", "wall_segment_candidates.room_loops.loops",
     "boundary_relations.items", "dimension_scale_check.items",
     "wall_segment_candidates.unpaired_handles", "wall_segment_candidates.ambiguous_handles",

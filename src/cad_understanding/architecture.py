@@ -29,6 +29,9 @@ from .dimension_scale import check_dimension_scale
 from .report_limits import (
     ARCHITECTURE_LIST_PATHS, DEFAULT_MAX_LIST_ITEMS, DEFAULT_MAX_RESPONSE_CHARS, fit_report,
     validate_max_list_items, validate_max_response_chars)
+from .block_contents import expand_block_lines
+from .plan_clusters import find_plan_clusters
+from .quantities import build_quantity_summary
 from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
 from .opening_swings import arc_from_geometry
 from .room_loops import find_room_loops
@@ -123,6 +126,9 @@ requires human review. Candidate counts are not counts of physical elements.
     if not isinstance(section, dict) or not isinstance(section.get("items"), list):
         raise ValueError("CAD-IR must include the entities section with raw geometry.")
     entities = section["items"]
+    virtual_lines, expanded_refs = expand_block_lines(entities, set().union(*rules.values()))
+    if virtual_lines:
+        entities = entities + virtual_lines
     drawing = deepcopy(drawing_ir.get("drawing", {}))
     identity = str(drawing.get("path") or drawing.get("name") or "unknown")
     candidates, unclassified, issues = [], [], []
@@ -140,8 +146,8 @@ requires human review. Candidate counts are not counts of physical elements.
     elif not drawing.get("units_metadata", {}).get("geometry_scale_verified"):
         issue("geometry_scale_unverified", [],
               "INSUNITS declares insertion units only; verify geometry scale against dimensions before calculations.")
-    total = section.get("total", len(entities))
-    truncated = bool(section.get("truncated") or total != len(entities))
+    total = section.get("total", len(section["items"]))
+    truncated = bool(section.get("truncated") or total != len(section["items"]))
     if truncated:
         issue("incomplete_entity_coverage", [], "The report does not include every scanned entity.")
     if not entities:
@@ -156,6 +162,11 @@ requires human review. Candidate counts are not counts of physical elements.
             issue("xref_reference_not_expanded", xref_references,
                   "These references insert external drawings; their content is not read or classified.")
 
+    if expanded_refs:
+        issue("block_contents_expanded", sorted(expanded_refs),
+              f"{sum(expanded_refs.values())} lines inside {len(expanded_refs)} block references were placed in "
+              "WCS and classified by their own layer names (virtual handles '<block handle>/L<n>'); "
+              "nested blocks and other entity types inside blocks are not read.")
     handle_counts = Counter(str(e.get("handle") or "") for e in entities)
     for entity in sorted(entities, key=lambda e: str(e.get("handle") or "")):
         handle = str(entity.get("handle") or "")
@@ -279,14 +290,25 @@ requires human review. Candidate counts are not counts of physical elements.
         wall_segments["runs"] = build_wall_runs(wall_segments["segments"], wall_segments["junctions"]["junctions"],
                                                 gaps=openings["gaps"])
         wall_segments["run_count"] = len(wall_segments["runs"])
+        wall_segments["plan_clusters"] = find_plan_clusters(wall_segments["segments"])
+        if wall_segments["plan_clusters"]["multiple_plan_clusters"]:
+            issue("multiple_plan_clusters", [],
+                  f"Wall segments form {wall_segments['plan_clusters']['cluster_count']} spatially separate groups; "
+                  "the model space may hold several plans or details (not inferred as storeys).")
         wall_segments["room_loops"] = find_room_loops(
             wall_segments["segments"], wall_segments["junctions"]["junctions"],
-            gaps=openings["gaps"], tolerance=wall_junction_tolerance)
+            gaps=openings["gaps"], tolerance=wall_junction_tolerance,
+            columns=[c for c in candidates if c["category"] == "column"])
         for segment in wall_segments["segments"]:
             # Geometric relation checked; the opening itself stays unverified.
             segment["openings_checked"] = True
         for gap_id in openings["gaps_without_opening_candidate"]:
             gap = next(g for g in openings["gaps"] if g["id"] == gap_id)
+            if gap.get("swing_arcs"):
+                issue("wall_gap_swing_arc_without_door_candidate", [str(s["source"]) for s in gap["swing_arcs"]],
+                      f"Gap {gap_id} has a door-swing-like arc but no door/window/opening candidate; "
+                      "the door symbol may sit on an unrecognised layer.")
+                continue
             issue("wall_gap_without_opening_candidate", [],
                   f"Gap {gap_id} between wall segments has no door/window/opening candidate; "
                   "check for an unnamed opening or a drawing break.")
@@ -326,6 +348,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "boundary_checks": boundary_checks,
         "boundary_relations": relations,
         "dimension_scale_check": dimension_scale,
+        "quantity_summary": build_quantity_summary(wall_segments, candidates),
         "wall_line_diagnostics": wall_lines,
         "wall_networks": build_wall_networks(candidates, wall_lines),
         "wall_segment_candidates": wall_segments,

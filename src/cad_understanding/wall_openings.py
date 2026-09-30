@@ -64,6 +64,10 @@ def relate_openings(candidates, segments, max_width=None, identity="unknown", ar
                      "segment_ids": gap["ids"], "gap_length": gap["gap_length"],
                      "thickness_drawing_units": gap["width"], "start_wcs": gap["start_wcs"],
                      "end_wcs": gap["end_wcs"], "status": "candidate"})
+    if arcs:
+        # A door swing at a wall gap is evidence of a door even when no door symbol is named as one.
+        for gap in gaps:
+            gap["swing_arcs"] = find_swings(arcs, gap["start_wcs"], gap["end_wcs"])
     gap_bands = [(g, band_polygon(g["start_wcs"], g["end_wcs"], g["thickness_drawing_units"])) for g in gaps]
     seg_bands = [(s, band_polygon(s["axis_wcs"][0], s["axis_wcs"][1], s["thickness_drawing_units"]["max"]))
                  for s in segments]
@@ -117,6 +121,7 @@ def relate_openings(candidates, segments, max_width=None, identity="unknown", ar
     return {"requested": True, "gap_search": gap_result is not None,
             "max_width_drawing_units": max_width, "gaps": gaps,
             "gaps_without_opening_candidate": [g["id"] for g in gaps if g["id"] not in used_gaps],
+            "gaps_with_swing_arc_only": [g["id"] for g in gaps if g["id"] not in used_gaps and g.get("swing_arcs")],
             "openings": items, "unmeasured_candidate_ids": unmeasured,
             "coverage_complete": bool(gap_result is None or gap_result["coverage_complete"]) and not unmeasured,
             "interpretation": ("in_wall_gap: the candidate's box overlaps a gap between collinear wall faces; "

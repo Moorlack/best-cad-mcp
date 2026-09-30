@@ -294,3 +294,60 @@ def test_wall_runs_can_be_linked_by_opening_gaps_beyond_junction_tolerance():
     known = [{"kind": "collinear_gap", "segment_ids": ["A", "B"], "gap_length": 36}]
     (again,) = build_wall_runs(segments, known, gaps=gaps)
     assert again["gap_count"] == 2
+
+
+def _plan_block(layer="0", ref_layer="A-WALL", x_scale=1.0, rotation=0.0):
+    return {"handle": "B1", "entity_type": "AcDbBlockReference", "layer": ref_layer, "geometry": {
+        "block_name": "PLAN", "insertion_point": [1000, 500, 0], "rotation": rotation, "x_scale": x_scale,
+        "y_scale": 1.0, "z_scale": 1.0, "normal": [0, 0, 1],
+        "block_definition": {"origin": [0, 0, 0], "entity_count": 4, "truncated": False, "arcs": [], "lines": [
+            {"start": [0, 0, 0], "end": [100, 0, 0], "layer": layer},
+            {"start": [0, 8, 0], "end": [100, 8, 0], "layer": layer},
+            {"start": [0, 50, 0], "end": [100, 50, 0], "layer": "A-DIM"},
+            {"start": [0, 60, 0], "end": [100, 60, 0], "layer": "TEXT"}]}}}
+
+
+def test_wall_lines_inside_a_block_are_placed_in_wcs_and_paired():
+    ir = {"schema_version": "cad-ir/v2", "drawing": {"path": "a.dwg", "units": "mm"},
+          "sections": {"entities": {"total": 1, "items": [_plan_block()]}}}
+    report = build_architectural_report(ir, wall_thickness_range=[4, 12])
+    handles = sorted(h for c in report["candidates"] for h in c["handles"])
+    assert [h for h in handles if "/" in h] == ["B1/L0", "B1/L1"]  # layer "0" falls back to the reference layer; A-DIM/TEXT lines stay out
+    segment = report["wall_segment_candidates"]["segments"][0]
+    assert segment["axis_wcs"] == [[1000.0, 504.0, 0.0], [1100.0, 504.0, 0.0]]
+    issue = next(i for i in report["issues"] if i["code"] == "block_contents_expanded")
+    assert issue["handles"] == ["B1"] and report["coverage"]["truncated"] is False
+    rotated = build_architectural_report(
+        {**ir, "sections": {"entities": {"total": 1, "items": [_plan_block(rotation=math.pi / 2)]}}},
+        wall_thickness_range=[4, 12])
+    axis = rotated["wall_segment_candidates"]["segments"][0]["axis_wcs"]
+    assert axis[0] == pytest.approx([996.0, 500.0, 0.0]) and axis[1] == pytest.approx([996.0, 600.0, 0.0])
+
+
+def test_block_lines_on_other_layers_or_non_plan_references_are_ignored():
+    from src.cad_understanding.block_contents import expand_block_lines
+    from src.cad_understanding.name_profiles import build_rules
+
+    vocabulary = set().union(*build_rules().values())
+    other = _plan_block(layer="0", ref_layer="Text")
+    assert expand_block_lines([other], vocabulary) == ([], {})
+    tilted = _plan_block()
+    tilted["geometry"]["normal"] = [0, 0, -1]
+    assert expand_block_lines([tilted], vocabulary) == ([], {})
+    non_uniform = expand_block_lines([_plan_block(x_scale=2.0)], vocabulary)[0]
+    assert non_uniform[0]["geometry"]["end"][0] == pytest.approx(1200.0)  # straight lines survive any scale
+
+
+def test_gap_with_swing_arc_but_no_door_symbol_is_reported_distinctly():
+    from src.cad_understanding.opening_swings import arc_from_geometry
+    from src.cad_understanding.wall_openings import relate_openings
+
+    def seg(i, a, b):
+        return {"id": i, "axis_wcs": [a, b], "thickness_drawing_units": {"min": 8, "max": 8}}
+
+    segments = [seg("S1", [0, 0, 0], [100, 0, 0]), seg("S2", [136, 0, 0], [236, 0, 0])]
+    arc = arc_from_geometry(_swing_arc((100, 0, 0), (136, 0, 0), (100, 36, 0)))
+    report = relate_openings([], segments, 50, "x", arcs=[("ARC9", arc)])
+    assert report["gaps"][0]["swing_arcs"][0]["source"] == "ARC9"
+    assert report["gaps_with_swing_arc_only"] == [report["gaps"][0]["id"]]
+    assert relate_openings([], segments, 50, "x")["gaps_with_swing_arc_only"] == []

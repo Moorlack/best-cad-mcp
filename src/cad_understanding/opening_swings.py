@@ -48,25 +48,25 @@ def arc_from_geometry(geometry):
     return {"center": center, "radius": radius, "start_angle": a0, "sweep": sweep}
 
 
-def block_arcs_wcs(reference_geometry):
-    """Arcs stored in the block definition, placed in WCS by the reference's insertion transform.
+def block_transform(reference_geometry, uniform_only=True):
+    """(place, sx, sy): maps block-local XY to WCS for a plan-view block reference, or None.
 
-    Skips (returns None) for non-plan normals and non-uniform scale, where an arc would not stay an arc.
+    Needs an insertion point, a +Z normal and finite non-zero scales; arcs additionally need uniform
+    scale (uniform_only) so they stay arcs, while straight lines survive any scale.
     """
     definition = (reference_geometry or {}).get("block_definition") or {}
-    source_arcs = definition.get("arcs") or []
     point = _xy((reference_geometry or {}).get("insertion_point"))
     rotation = (reference_geometry or {}).get("rotation", 0.0)
-    if not source_arcs or point is None or type(rotation) not in (int, float) or not math.isfinite(rotation):
-        return []
+    if point is None or type(rotation) not in (int, float) or not math.isfinite(rotation):
+        return None
     normal = reference_geometry.get("normal") or [0, 0, 1]
     if len(normal) < 3 or normal[2] < 0.999999:
-        return []
+        return None
     sx, sy = reference_geometry.get("x_scale", 1.0), reference_geometry.get("y_scale", 1.0)
     if not all(type(v) in (int, float) and math.isfinite(v) and v != 0 for v in (sx, sy)):
-        return []
-    if abs(abs(sx) - abs(sy)) > 1e-9 * max(abs(sx), abs(sy)):
-        return []
+        return None
+    if uniform_only and abs(abs(sx) - abs(sy)) > 1e-9 * max(abs(sx), abs(sy)):
+        return None
     origin = _xy(definition.get("origin")) or (0.0, 0.0)
     cos_r, sin_r = math.cos(rotation), math.sin(rotation)
 
@@ -74,6 +74,20 @@ def block_arcs_wcs(reference_geometry):
         x, y = (local[0] - origin[0]) * sx, (local[1] - origin[1]) * sy
         return (point[0] + cos_r * x - sin_r * y, point[1] + sin_r * x + cos_r * y)
 
+    return place, sx, sy
+
+
+def block_arcs_wcs(reference_geometry):
+    """Arcs stored in the block definition, placed in WCS by the reference's insertion transform.
+
+    Skips (returns []) for non-plan normals and non-uniform scale, where an arc would not stay an arc.
+    """
+    definition = (reference_geometry or {}).get("block_definition") or {}
+    source_arcs = definition.get("arcs") or []
+    transform = block_transform(reference_geometry) if source_arcs else None
+    if transform is None:
+        return []
+    place, sx, sy = transform
     placed = []
     for entry in source_arcs:
         arc = arc_from_geometry(entry)
