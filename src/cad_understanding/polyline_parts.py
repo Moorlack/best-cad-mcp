@@ -8,6 +8,8 @@ segments (non-zero bulge) are reported, not flattened.
 
 import math
 
+from src.mline_styles import face_offsets
+
 EPS = 1e-12
 POLYLINE_KINDS = {"polyline", "2dpolyline", "lwpolyline"}
 
@@ -57,7 +59,8 @@ def split_polyline(handle, geometry, base_id, layer="0"):
 
 # STANDARD MLINE style: two elements at +0.5 and -0.5 (positive = left of the
 # drawing direction). Justification moves the vertices onto the top (0), the
-# centre (1) or the bottom (2) element. Other styles' offsets are not exposed by COM.
+# centre (1) or the bottom (2) element. Other styles' offsets are not exposed by COM;
+# they arrive as geometry['mline_style_offsets'] (see src/mline_styles.py).
 STANDARD_MLINE_OFFSETS = {0: (0.0, -1.0), 1: (0.5, -0.5), 2: (1.0, 0.0)}
 
 
@@ -85,23 +88,32 @@ def _offset_chain(points, offset):
 
 
 def split_mline(handle, geometry, base_id, layer="0"):
-    """Face segments of a STANDARD-style MLINE; returns (parts, excluded)."""
+    """Face segments of an MLINE (STANDARD, or a style with scanned offsets); returns (parts, excluded)."""
     vertices = geometry.get("vertices", [])
     style = str(geometry.get("mline_style") or "")
     scale, just = geometry.get("mline_scale"), geometry.get("mline_justification")
     if not isinstance(vertices, list) or len(vertices) < 2 or not all(_point(v) for v in vertices):
         return [], [{"handle": handle, "reason": "invalid_mline_vertices"}]
-    if style.upper() != "STANDARD":
-        return [], [{"handle": handle, "reason": "mline_style_offsets_unknown"}]
     if type(scale) not in (int, float) or not math.isfinite(scale) or just not in STANDARD_MLINE_OFFSETS:
         return [], [{"handle": handle, "reason": "mline_scale_or_justification_missing"}]
+    if style.upper() == "STANDARD":
+        element_offsets = STANDARD_MLINE_OFFSETS[just]
+    else:
+        # Other styles: the two outermost elements are the wall faces; offsets come from
+        # the style read at scan time (DXF export), never guessed.
+        style_offsets = geometry.get("mline_style_offsets")
+        if not style_offsets:
+            return [], [{"handle": handle, "reason": "mline_style_offsets_unknown"}]
+        element_offsets = face_offsets(style_offsets, just)
+        if element_offsets is None:
+            return [], [{"handle": handle, "reason": "mline_style_offsets_invalid"}]
     points = [tuple(v) + ((0.0,) if len(v) == 2 else ()) for v in vertices]
     points = [p for i, p in enumerate(points) if i == 0 or math.dist(p[:2], points[i - 1][:2]) > EPS]
     if len(points) < 2:
         return [], [{"handle": handle, "reason": "degenerate_segment"}]
     parts = []
     count = len(points) - 1
-    for k, offset in enumerate(STANDARD_MLINE_OFFSETS[just]):
+    for k, offset in enumerate(element_offsets):
         chain = _offset_chain(points, offset * scale)
         for i in range(count):
             key = f"{handle}#e{k}s{i}"

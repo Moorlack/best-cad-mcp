@@ -3783,6 +3783,58 @@ class CADController:
         except Exception:
             return None
 
+    def _attach_mline_style_offsets(self, document, entities) -> None:
+        """Give non-STANDARD MLINE records their style's element offsets.
+
+        COM does not expose MLSTYLE offsets, so one MLINE per style is exported to a
+        temporary DXF (a selection-set export copies the style) and the style table is
+        parsed from it. Any failure leaves the records without offsets, which the wall
+        pipeline reports as mline_style_offsets_unknown instead of guessing.
+        """
+        samples = {}
+        for info in entities:
+            style = str(info.get("mline_style") or "") if info.get("type") == "AcDbMline" else ""
+            if style and style.upper() != "STANDARD":
+                samples.setdefault(style.upper(), info.get("handle"))
+        if not samples:
+            return
+        import shutil
+        import tempfile
+
+        from src.mline_styles import parse_mline_styles
+
+        folder = tempfile.mkdtemp(prefix="cad_mcp_mlstyle_")
+        selection_set = None
+        try:
+            try:
+                document.SelectionSets.Item("MCP_MLSTYLE_SS").Delete()
+            except Exception:
+                pass
+            selection_set = document.SelectionSets.Add("MCP_MLSTYLE_SS")
+            items = [document.HandleToObject(handle) for handle in samples.values() if handle]
+            selection_set.AddItems(win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, items))
+            target = os.path.join(folder, "mlstyles.dxf")
+            document.Export(os.path.splitext(target)[0], "DXF", selection_set)
+            self._wait_for_export_file(target, "DXF")
+            with open(target, "r", encoding="utf-8", errors="replace") as handle:
+                styles = parse_mline_styles(handle.read())
+        except Exception:
+            logger.debug("Could not read MLINE style offsets", exc_info=True)
+            return
+        finally:
+            if selection_set is not None:
+                try:
+                    selection_set.Delete()
+                except Exception:
+                    pass
+            shutil.rmtree(folder, ignore_errors=True)
+        for info in entities:
+            style = str(info.get("mline_style") or "").upper() if info.get("type") == "AcDbMline" else ""
+            if style and style != "STANDARD":
+                offsets = styles.get(style)
+                if offsets:
+                    info["mline_style_offsets"] = offsets
+
     @require_document
     def scan_model_space(self, max_entities: int = 10000,
                          detail_level: str = DetailLevel.MINIMAL,
@@ -4049,6 +4101,7 @@ class CADController:
                 entities.append(info)
             except Exception as e:
                 entities.append({"index": i, "error": str(e)})
+        self._attach_mline_style_offsets(document, entities)
         return {
             "entities": entities,
             "total": count,

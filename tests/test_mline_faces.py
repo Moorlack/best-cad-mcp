@@ -100,3 +100,153 @@ def test_scan_captures_mline_data(tmp_path, monkeypatch):
     stored = db.get_entity("M1")["geometry"]
     assert stored["vertices"] == [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]]
     assert (stored["mline_style"], stored["mline_scale"], stored["mline_justification"]) == ("STANDARD", 8.0, 0)
+
+
+DXF_STYLES = """  0
+SECTION
+  2
+OBJECTS
+  0
+MLINESTYLE
+  5
+1A
+100
+AcDbMlineStyle
+  2
+STANDARD
+ 70
+     0
+ 71
+     2
+ 49
+0.5
+ 62
+   256
+  6
+BYLAYER
+ 49
+-0.5
+ 62
+   256
+  6
+BYLAYER
+  0
+MLINESTYLE
+  5
+1B
+100
+AcDbMlineStyle
+  2
+WALL3
+ 71
+     3
+ 49
+1.0
+ 49
+0.0
+ 49
+-2.0
+  0
+ENDSEC
+  0
+EOF
+"""
+
+
+def test_parse_mline_styles_and_face_offsets():
+    from src.mline_styles import face_offsets, parse_mline_styles
+
+    styles = parse_mline_styles(DXF_STYLES)
+    assert styles == {"STANDARD": [0.5, -0.5], "WALL3": [1.0, 0.0, -2.0]}
+    assert face_offsets(styles["STANDARD"], 0) == (0.0, -1.0)
+    assert face_offsets(styles["STANDARD"], 2) == (1.0, 0.0)
+    assert face_offsets(styles["WALL3"], 1) == (1.0, -2.0)
+    assert face_offsets(styles["WALL3"], 0) == (0.0, -3.0)
+    assert face_offsets([1.0], 0) is None and face_offsets([1.0, 1.0], 0) is None
+    assert face_offsets([1.0, 0.0], 5) is None
+    assert parse_mline_styles("") == {}
+
+
+def test_custom_style_uses_scanned_offsets_for_faces():
+    geometry = {"vertices": [[0, 0, 0], [100, 0, 0]], "mline_style": "WALL3", "mline_scale": 2.0,
+                "mline_justification": 1, "mline_style_offsets": [1.0, 0.0, -2.0]}
+    parts, excluded = split_mline("H", geometry, "g")
+    assert not excluded and len(parts) == 2
+    ys = sorted(round(p["geometry"]["start"][1], 6) for p in parts)
+    assert ys == [-4.0, 2.0]  # outer elements +1 and -2, scaled by 2
+    missing = dict(geometry)
+    del missing["mline_style_offsets"]
+    assert split_mline("H", missing, "g")[1][0]["reason"] == "mline_style_offsets_unknown"
+    bad = dict(geometry, mline_style_offsets=[1.0, 1.0])
+    assert split_mline("H", bad, "g")[1][0]["reason"] == "mline_style_offsets_invalid"
+
+
+class _FakeSelectionSet:
+    def __init__(self, sets):
+        self.sets, self.items = sets, []
+
+    def AddItems(self, items):
+        self.items = list(items)
+
+    def Delete(self):
+        self.sets.clear()
+
+
+class _FakeSelectionSets:
+    def __init__(self):
+        self.sets = {}
+
+    def Item(self, name):
+        raise KeyError(name)
+
+    def Add(self, name):
+        self.sets[name] = _FakeSelectionSet(self.sets)
+        return self.sets[name]
+
+
+class _FakeExportDocument:
+    def __init__(self, dxf_text, fail=False):
+        self.SelectionSets, self.dxf_text, self.fail, self.exported = _FakeSelectionSets(), dxf_text, fail, []
+
+    def HandleToObject(self, handle):
+        return handle
+
+    def Export(self, path, fmt, selection_set):
+        if self.fail:
+            raise RuntimeError("export failed")
+        self.exported.append(list(selection_set.items))
+        open(path + ".dxf", "w", encoding="utf-8").write(self.dxf_text)
+
+
+def _controller_for_attach(monkeypatch):
+    from src import cad_controller
+
+    monkeypatch.setattr(cad_controller.win32com.client, "VARIANT", lambda kind, value: value)
+    return cad_controller.CADController.__new__(cad_controller.CADController)
+
+
+def test_scan_attaches_style_offsets_with_one_export_per_style(monkeypatch):
+    controller = _controller_for_attach(monkeypatch)
+    entities = [
+        {"type": "AcDbMline", "handle": "A", "mline_style": "Wall3"},
+        {"type": "AcDbMline", "handle": "B", "mline_style": "WALL3"},
+        {"type": "AcDbMline", "handle": "C", "mline_style": "STANDARD"},
+        {"type": "AcDbLine", "handle": "D"},
+    ]
+    document = _FakeExportDocument(DXF_STYLES)
+    controller._attach_mline_style_offsets(document, entities)
+    assert document.exported == [["A"]]  # one sample per non-STANDARD style; STANDARD needs none
+    assert entities[0]["mline_style_offsets"] == [1.0, 0.0, -2.0] == entities[1]["mline_style_offsets"]
+    assert "mline_style_offsets" not in entities[2] and "mline_style_offsets" not in entities[3]
+    assert not document.SelectionSets.sets  # temporary selection set removed
+
+
+def test_scan_style_offsets_are_skipped_safely(monkeypatch):
+    controller = _controller_for_attach(monkeypatch)
+    entities = [{"type": "AcDbMline", "handle": "A", "mline_style": "WALL3"}]
+    controller._attach_mline_style_offsets(_FakeExportDocument(DXF_STYLES, fail=True), entities)
+    assert "mline_style_offsets" not in entities[0]
+    only_standard = [{"type": "AcDbMline", "handle": "A", "mline_style": "STANDARD"}]
+    document = _FakeExportDocument(DXF_STYLES)
+    controller._attach_mline_style_offsets(document, only_standard)
+    assert document.exported == []

@@ -84,7 +84,7 @@ MLINE: scan сохраняет вершины (`Coordinates`), `mline_style`, `m
 от направления рисования): Top → [0, −1], Zero → [+0.5, −0.5], Bottom → [+1, 0]
 × масштаб, с митровыми стыками на изломах (`split_mline`). Ключ части —
 `<handle>#e<элемент>s<сегмент>`; грани одной MLINE — отдельные линии в группах
-контактов. Иной стиль → `mline_style_offsets_unknown`, без масштаба/выравнивания →
+контактов. Иной стиль: при скане `_attach_mline_style_offsets` экспортирует по одной MLINE каждого стиля во временный DXF (выбранный набор копирует MLINESTYLE), `src/mline_styles.parse_mline_styles` читает смещения (код 49), они попадают в `geometry.mline_style_offsets`; гранями считаются два крайних элемента (`face_offsets`: Top сдвигает верхний элемент на ось, Bottom — нижний, Zero — без сдвига). Если чтение не удалось → `mline_style_offsets_unknown`, стиль с <2 разными элементами → `mline_style_offsets_invalid`; без масштаба/выравнивания →
 `mline_scale_or_justification_missing`. MLINE классифицируется только как wall.
 
 Живая самопроверка MLINE: `CMLSCALE=8`, L-MLINE (11300,2300)→(11300,2000)→(11800,2000)
