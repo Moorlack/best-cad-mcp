@@ -3145,6 +3145,15 @@ def export_dxf(ctx: Context, filepath: str) -> str:
     return file_tools.export_dxf(filepath)
 
 
+@mcp.tool(
+    description="Import a DXF file through native AutoCAD Import into a separate unsaved drawing. Requires allow_modify=true. Use instead of open_drawing for DXF, then inspect units and scan_all_entities.",
+    annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False),
+)
+def import_dxf(ctx: Context, filepath: str, allow_modify: bool = False) -> Dict[str, Any]:
+    """Import DXF at the world origin and unit scale without saving or closing drawings."""
+    return file_tools.import_dxf(filepath, allow_modify=allow_modify)
+
+
 @mcp.tool()
 def export_dwf(ctx: Context, filepath: str) -> str:
     """将当前图纸导出为 DWF (Design Web Format) 文件。

@@ -450,6 +450,11 @@ have AutoCAD.
 Contributions are welcome. Please keep changes scoped, add regression tests for
 behavior changes, and preserve the scan → plan → validate → verify safety model.
 
+For model comparisons, use the [agent loop experiment guide](docs/agent-benchmark.md)
+to freeze the drawing, source, skill and prompts and record independently reviewed
+live runs. The offline ledger keeps pending results unknown and does not treat
+synthetic grounding tests or deterministic demo plans as model evaluations.
+
 ## Acknowledgements
 
 The model-private annotation and pointer-style CAD context design was informed

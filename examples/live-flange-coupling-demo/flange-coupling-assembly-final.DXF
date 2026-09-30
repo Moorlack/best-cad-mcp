@@ -15,26 +15,6 @@ $DWGCODEPAGE
   3
 ANSI_936
   9
-$TITLE
-  1
-Bolted Flange Coupling Assembly
-  9
-$SUBJECT
-  1
-best-cad-mcp live AutoCAD README demonstration
-  9
-$AUTHOR
-  1
-Codex via best-cad-mcp
-  9
-$KEYWORDS
-  1
-MCP, AutoCAD, assembly, flange coupling, CADPlan
-  9
-$COMMENTS
-  1
-DEMO - NOT FOR MANUFACTURE
-  9
 $LASTSAVEDBY
   1
 best-cad-mcp
@@ -4591,7 +4571,7 @@ AcDbMText
  72
      1
   1
-�?0
+%%c40
  73
      1
  44
@@ -16433,7 +16413,7 @@ AcDbPlotSettings
   1
 
   2
-�?
+无
   4
 Letter_(8.50_x_11.00_Inches)
   6
@@ -16553,13 +16533,13 @@ EA
 1001
 ACAD_PSEXT
 1000
-�?
+无
 1000
-�?
+无
 1000
-不可�?
+不可用
 1000
-在选择新的绘图仪配置名称之前，不能打印该布局�?
+在选择新的绘图仪配置名称之前，不能打印该布局。
 1070
      0
   0

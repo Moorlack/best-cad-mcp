@@ -559,6 +559,9 @@ class CADController:
 
     def open_drawing(self, filepath: str, password: Optional[str] = None) -> Dict[str, Any]:
         """Open a drawing even when AutoCAD is only showing the Start tab."""
+        if os.path.splitext(os.fspath(filepath))[1].lower() == ".dxf":
+            return {"success": False,
+                    "message": "DXF requires import_dxf, not Documents.Open. Use import_dxf with allow_modify=True to create a separate drawing."}
         self._ensure_connected()
         if self.acad is None:
             return {"success": False,
@@ -580,6 +583,50 @@ class CADController:
                 self._restore_vars(old_vars)
             except Exception:
                 pass
+
+    def import_dxf(self, filepath: str, allow_modify: bool = False) -> Dict[str, Any]:
+        """Import a DXF at the origin into a newly created, unsaved drawing.
+
+        Documents.Open is DWG-only. Import's NULL return for DXF is normal;
+        the active document must be rescanned after a successful import.
+        """
+        if allow_modify is not True:
+            return {"success": False, "message": "DXF import requires allow_modify=True."}
+        source = os.path.abspath(os.fspath(filepath))
+        if os.path.splitext(source)[1].lower() != ".dxf" or not os.path.isfile(source):
+            return {"success": False, "message": "Provide an existing .dxf file."}
+        created = self.create_drawing()
+        if not created.get("success"):
+            return created
+        old_vars: Dict[str, Any] = {}
+        phase = "prepare_new_document"
+        try:
+            # AutoCAD can return a transient dispatch proxy from Documents.Add.
+            # Reacquire the active document on this same COM apartment thread.
+            self._refresh_active_document()
+            document = self.doc
+            if created.get("name") and document.Name != created["name"]:
+                return {"success": False, "message": "Active drawing changed before DXF import; no import attempted."}
+            if int(document.ModelSpace.Count) != 0:
+                return {"success": False, "message": "The new template contains model-space entities; DXF import was not attempted."}
+            old_vars = self._set_file_dialog_vars(0)
+            self._prepare_application_for_file_operation()
+            phase = "native_import"
+            document.Import(source, to_variant_point(0.0, 0.0, 0.0), 1.0)
+            phase = "read_import_result"
+            self.doc = document
+            return {"success": True, "message": "Imported DXF into a separate unsaved drawing; rescan before editing.",
+                    "source_path": source, "name": document.Name,
+                    "entity_count": int(document.ModelSpace.Count)}
+        except Exception as exc:
+            return {"success": False, "message": f"DXF import failed: {exc}",
+                    "source_path": source, "phase": phase,
+                    "warning": "The new document may contain partial import data. Inspect it before reuse; no drawing was saved or closed."}
+        finally:
+            try:
+                self._restore_vars(old_vars)
+            except Exception:
+                logger.debug("Could not restore DXF import dialog variables", exc_info=True)
 
     def _save_drawing_with_retries(self, filepath: Optional[str] = None) -> Dict[str, Any]:
         old_vars: Dict[str, Any] = {}
@@ -974,6 +1021,9 @@ class CADController:
                 pass
             selection_set = self.doc.SelectionSets.Add(ss_name)
             if format_type in {"WMF", "BMP"} and self.doc.ModelSpace.Count > 0:
+                # Newly imported entities may not yet have display graphics.
+                # Export can otherwise succeed with an empty metafile.
+                self.doc.Regen(1)
                 items = [
                     self.doc.ModelSpace.Item(index)
                     for index in range(self.doc.ModelSpace.Count)

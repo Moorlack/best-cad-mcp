@@ -391,6 +391,10 @@ AutoCAD，实时 AutoCAD 预检与 CADPlan 验证必须在本机完成。
 欢迎贡献。行为变化请加入回归测试，并保持“扫描 → 规划 → 验证 → 复核”的
 安全模型。
 
+比较模型能力时，使用 [agent 闭环评测指南](docs/agent-benchmark.md) 固定图纸、
+源码、skill 和 prompt，再记录独立复核的真实运行结果。离线评测记录工具会保留
+未执行和未知状态，不把合成 grounding 测试或固定 CADPlan 演示当作模型评测。
+
 ## 致谢
 
 模型私有标注和 pointer-style CAD 上下文设计在概念上参考了公开的

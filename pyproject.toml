@@ -1,6 +1,6 @@
 [project]
 name = "best-cad-mcp"
-version = "1.7.0"
+version = "1.7.2"
 description = "Comprehensive Windows AutoCAD MCP server with 300+ specialized tools for handle-first drawing, editing, understanding, validation, visual grounding, plotting, and guarded CAD automation."
 readme = "README.md"
 requires-python = ">=3.11"

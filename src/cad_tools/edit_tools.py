@@ -38,7 +38,10 @@ def move_entity(handle: str, from_point: List[float],
                              layer=ent.get("layer", "0"),
                              color=ent.get("color", 256),
                              geometry=geom)
-        return f"✓ 已移动实体 {handle}，位移: ({to_point[0]-from_point[0]:.2f}, {to_point[1]-from_point[1]:.2f})"
+        return format_success(
+            f"已移动实体 {handle}，位移: ({to_point[0]-from_point[0]:.2f}, {to_point[1]-from_point[1]:.2f})",
+            handle=handle,
+        )
     return f"移动实体失败: {r['message']}"
 
 

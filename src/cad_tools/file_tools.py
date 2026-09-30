@@ -55,6 +55,14 @@ def export_pdf(filepath: str, paper_size: str = "",
     return r["message"]
 
 
+def import_dxf(filepath: str, allow_modify: bool = False) -> dict:
+    """Import an existing DXF into a separate unsaved drawing, using native Import."""
+    result = ctrl.import_dxf(filepath, allow_modify=allow_modify)
+    if result.get("success"):
+        _sync_db_drawing_from_info(ctrl.get_document_info())
+    return {"ok": bool(result.get("success")), "message": result.get("message", ""), "data": result}
+
+
 def export_dxf(filepath: str) -> str:
     """将当前图纸导出为 DXF 文件。
 

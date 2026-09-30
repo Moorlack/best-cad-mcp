@@ -2215,6 +2215,7 @@ class TestActiveXCallShapes(unittest.TestCase):
 
         self.assertTrue(result["success"], result)
         selection_set.AddItems.assert_called_once()
+        doc.Regen.assert_called_once_with(1)
         add_items_arg = selection_set.AddItems.call_args.args[0]
         # Real pywin32 uses an explicit VT_ARRAY|VT_DISPATCH VARIANT while
         # lightweight COM mocks commonly pass the Python list through.

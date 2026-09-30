@@ -1,0 +1,36 @@
+{
+  "schema_version": "cad-agent-benchmark/v1",
+  "suite_id": "flange-coupling-pilot-v1",
+  "tool_profile": "core",
+  "budget": {
+    "max_repair_rounds": 2,
+    "max_tool_calls": 100,
+    "max_elapsed_seconds": 1200
+  },
+  "cases": [
+    {
+      "case_id": "shaft-outline",
+      "mode": "inspect",
+      "drawing": "examples/live-flange-coupling-demo/flange-coupling-assembly-final.DXF",
+      "prompt": "Inspect the supplied flange coupling drawing without changing it. In the longitudinal half-section, identify the complete visible outline of the left shaft as one component. Use a mapped clean image and overlay, submit your visual finding, and explain every member handle. Distinguish shaft geometry from the hub, key, centerline, hatching and annotations. If the evidence cannot uniquely establish a complete group, preserve the alternatives and explain the uncertainty. Record the final snapshot and finding IDs. Use the frozen draw-assembly-diagrams skill and vlm_review_drawing prompt.",
+      "acceptance": {
+        "complete_group_or_justified_abstention": "Independent ground truth confirms the full handle group, or confirms that abstention was necessary; incomplete member groups do not pass.",
+        "evidence_agreement": "The clean image, overlay and structured geometry support the decision with correct coordinate provenance.",
+        "drawing_unchanged": "Before/after scans and images show no drawing changes."
+      }
+    },
+    {
+      "case_id": "exploded-component-move",
+      "mode": "edit",
+      "drawing": "examples/live-flange-coupling-demo/flange-coupling-assembly-final.DXF",
+      "prompt": "In a disposable copy of the supplied flange coupling drawing, locate the leftmost complete mechanical component in the exploded schematic and move that component 5 mm left in world X, with Y unchanged. Include all geometry belonging to that component; exclude its item leader, dimensions, text and centerline. Establish the full handle group using visual and structured evidence before editing. If membership is ambiguous, obtain more evidence and abstain if it remains unresolved. Modification of this disposable copy is authorized. Validate and dry-run each CADPlan before transactional execution, then rescan, validate and inspect a fresh mapped image. Repair mistakes within two repair rounds. All unrelated entities and other views must remain unchanged. Save any output only inside this run's workspace. Use the frozen draw-assembly-diagrams skill and vlm_review_drawing prompt.",
+      "acceptance": {
+        "correct_component": "The selected group contains all and only the target component geometry, verified against independent ground truth.",
+        "exact_translation": "Every target member moved (-5, 0, 0) mm within a 0.001 mm tolerance; target shape and properties are preserved.",
+        "unrelated_entities_unchanged": "No non-target entity was added, removed, moved or otherwise changed.",
+        "guarded_execution": "The transcript shows validation and dry-run before each transactional execution, followed by a rescan.",
+        "final_verification": "Fresh final images and structured checks confirm the requested translation and no new geometry or layout defects. Existing baseline issues are recorded separately."
+      }
+    }
+  ]
+}

@@ -57,3 +57,6 @@ goal.md
 
 # Local agent/session state
 .omc/
+
+# Local code index
+.codegraph/
