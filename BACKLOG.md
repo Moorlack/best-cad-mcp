@@ -270,6 +270,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): `render_drawing_view(compact=True)` (по умолчанию) убирает из возвращаемого текста дубли (`entity_overlay_items`, `entity_screen_bboxes`, `visible_handles`, `transform_chain`) и пустые поля элементов (`pixel_path`, `world_path`, `semantic_tags`, `native_handle`); `compact=false` возвращает всё; полный снимок остаётся в БД и mapping JSON (`view_grounding.compact_export_for_model`). 749 тестов (+1), ruff PASS. Live: render_drawing_view на TEST2 — ответ заметно короче (раньше >25k токенов), world_to_pixel/overlay_items.pixel_bbox те же.
 
+- [x] 2026-09-30 live PASS compact (Claude, установленный `5a8c498`, PID 42128, TEST2 27 объектов, DWG не менялся): render_drawing_view(crop_to_content=true, which=clean, include_overlay=false) — ответ без entity_overlay_items/entity_screen_bboxes/visible_handles/transform_chain и без пустых полей, есть блок `compact` с путём к mapping JSON; world_to_pixel (0.05645), pixel_bbox объектов, crop [544,203,1039,679] и fit (raster_content_fit_for_wmf_export) те же, что до сжатия; cache_freshness=consistent_with_scan. Экспорт-часть ответа сократилась примерно вдвое; остаток — повтор `source_ref_template` в vision-части (images[].coordinate_contract, source_ref_templates, source_ref_template) — возможная следующая экономия.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
