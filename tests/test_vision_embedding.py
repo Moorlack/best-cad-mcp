@@ -351,3 +351,50 @@ def test_invalid_path_is_graceful():
     prep = vision.prepare_model_image("bad\x00name.png")
     assert not prep["ok"] and not prep["embeddable"]
     assert prep["reason"]
+
+
+def _content_png(path, size=(2400, 1000), box=(1000, 400, 1300, 600)):
+    img = PILImage.new("RGB", size, (255, 255, 255))
+    img.paste((0, 0, 0), box)
+    img.save(path)
+    return str(path)
+
+
+def _apply(matrix, x, y):
+    return (matrix[0][0] * x + matrix[0][1] * y + matrix[0][2],
+            matrix[1][0] * x + matrix[1][1] * y + matrix[1][2])
+
+
+def test_crop_to_content_trims_margins_and_maps_back(tmp_path):
+    src = _content_png(tmp_path / "wide.png")
+    prep = vision.prepare_model_image(src, crop_to_content=True)
+    assert prep["ok"] and prep["crop"]["applied"]
+    x0, y0, x1, y1 = prep["crop"]["box_source_pixels"]
+    assert x0 < 1000 and x1 > 1300 and y0 < 400 and y1 > 600
+    assert prep["source_image"] == {"width": 2400, "height": 1000}
+    assert prep["observed_image"]["width"] == x1 - x0
+    # Observed origin lands on the crop corner; round trip is exact.
+    assert _apply(prep["observed_to_source"], 0, 0) == (x0, y0)
+    ox, oy = _apply(prep["source_to_observed"], 1150, 500)
+    assert _apply(prep["observed_to_source"], ox, oy) == pytest.approx((1150, 500))
+
+
+def test_crop_with_downscale_keeps_mapping_exact(tmp_path):
+    src = _content_png(tmp_path / "big.png", size=(6000, 3000), box=(100, 100, 5900, 2900))
+    none = vision.prepare_model_image(src, max_dim=1568, crop_to_content=True)
+    assert not none["crop"]["applied"]  # content fills the image: no useful crop
+    src2 = _content_png(tmp_path / "big2.png", size=(6000, 3000), box=(2500, 1200, 3500, 1800))
+    prep = vision.prepare_model_image(src2, max_dim=300, crop_to_content=True)
+    assert prep["crop"]["applied"] and max(prep["width"], prep["height"]) <= 300
+    sx, sy = _apply(prep["observed_to_source"], prep["width"] / 2, prep["height"] / 2)
+    x0, y0, x1, y1 = prep["crop"]["box_source_pixels"]
+    assert (sx, sy) == pytest.approx(((x0 + x1) / 2, (y0 + y1) / 2))
+
+
+def test_crop_skipped_for_uniform_image_and_default_off(tmp_path):
+    uniform = write_png(tmp_path / "flat.png", size=(400, 300), color=(255, 255, 255))
+    assert not vision.prepare_model_image(uniform, crop_to_content=True)["crop"]["applied"]
+    src = _content_png(tmp_path / "off.png", size=(800, 400), box=(300, 150, 400, 250))
+    prep = vision.prepare_model_image(src)
+    assert not prep["crop"]["applied"]
+    assert prep["observed_to_source"] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]

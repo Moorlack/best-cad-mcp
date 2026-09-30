@@ -5581,15 +5581,19 @@ def export_view_image_with_mapping(ctx: Context,
     structured_output=False,
     annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True),
 )
-def view_image(ctx: Context, path: str, max_dim: int = 1568, label: str = "") -> Any:
+def view_image(ctx: Context, path: str, max_dim: int = 1568, label: str = "",
+               crop_to_content: bool = False) -> Any:
     """Show any local image to the model as inline image content.
 
     Args:
         path: Local image file (png/jpg/jpeg/gif/webp, or auto-converted wmf/bmp/tiff).
         max_dim: Long-edge pixel cap; larger images are downscaled (default 1568).
         label: Optional caption shown with the image summary.
+        crop_to_content: Trim uniform background margins first (only when it saves
+            15%+ of the area); coordinates still map back to the full image.
     """
-    result = understanding_vision.view_image(path, max_dim=max_dim, label=label)
+    result = understanding_vision.view_image(path, max_dim=max_dim, label=label,
+                                             crop_to_content=crop_to_content)
     return _vision_tool_result(result)
 
 
@@ -5600,7 +5604,8 @@ def view_image(ctx: Context, path: str, max_dim: int = 1568, label: str = "") ->
 )
 def get_snapshot_image(ctx: Context, snapshot_id: Optional[str] = None,
                        which: str = "auto", max_dim: int = 1568,
-                       tile_id: Optional[str] = None) -> Any:
+                       tile_id: Optional[str] = None,
+                       crop_to_content: bool = False) -> Any:
     """Embed a prior view snapshot's image(s) so the model can review them.
 
     Args:
@@ -5610,9 +5615,12 @@ def get_snapshot_image(ctx: Context, snapshot_id: Optional[str] = None,
             its tile-local to snapshot-global transform. Echo the returned
             source_ref_template when reporting pixels from the embedded image.
         max_dim: Long-edge pixel cap for downscaling (default 1568).
+        crop_to_content: Trim empty margins of whole-view images (not tiles); the
+            returned coordinate contract accounts for the crop offset.
     """
     result = understanding_vision.resolve_snapshot_images(
-        snapshot_id=snapshot_id, which=which, tile_id=tile_id, max_dim=max_dim)
+        snapshot_id=snapshot_id, which=which, tile_id=tile_id, max_dim=max_dim,
+        crop_to_content=crop_to_content)
     return _vision_tool_result(result)
 
 
@@ -5628,7 +5636,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
                         max_dim: int = 1568,
                         include_tiles: bool = False,
                         tile_size: int = 640,
-                        tile_overlap: float = 0.2) -> Any:
+                        tile_overlap: float = 0.2,
+                        crop_to_content: bool = False) -> Any:
     """Export the current AutoCAD view with mapping AND embed the rendered image.
 
     Returns the world/pixel/handle mapping summary as text plus the rendered
@@ -5650,6 +5659,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         tile_size: Tile edge length in snapshot pixels.
         tile_overlap: Fractional overlap used to protect boundary features.
         max_dim: Long-edge pixel cap for the embedded image (default 1568).
+        crop_to_content: Trim empty margins of the embedded image so the drawing
+            gets more pixels; observed_to_global stays exact.
     """
     export = understanding_view.export_view_image_with_mapping(
         filepath=filepath,
@@ -5668,7 +5679,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
     if not snapshot_id:
         return [export]
     vision_result = understanding_vision.resolve_snapshot_images(
-        snapshot_id=snapshot_id, which=which, max_dim=max_dim)
+        snapshot_id=snapshot_id, which=which, max_dim=max_dim,
+        crop_to_content=crop_to_content)
     image_blocks = _vision_image_blocks(vision_result)
     # Lead with the export mapping, then retain the vision summary containing
     # the exact observed-image coordinate contract/source_ref template before

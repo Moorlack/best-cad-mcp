@@ -111,6 +111,39 @@ def _scale_matrix(scale_x: float, scale_y: float) -> List[List[float]]:
     ]
 
 
+# Content crop: drop uniform background margins around the drawing so small details
+# keep more pixels after downscaling. Background = the colour shared by the corners.
+CROP_MIN_SAVING = 0.15       # crop only when it removes at least this share of the area
+CROP_MIN_SIZE = 32
+CROP_TOLERANCE = 12          # per-channel difference still counted as background
+
+
+def _content_crop_box(img, pil) -> Optional[tuple]:
+    """(x0, y0, x1, y1) around the non-background content with padding, or None when not useful."""
+    from PIL import ImageChops  # imported lazily: Pillow is an optional extra
+
+    rgb = img.convert("RGB")
+    width, height = rgb.size
+    if width < CROP_MIN_SIZE or height < CROP_MIN_SIZE:
+        return None
+    corners = [rgb.getpixel(p) for p in ((0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1))]
+    background = max(set(corners), key=corners.count)
+    if corners.count(background) < 2:
+        return None
+    diff = ImageChops.difference(rgb, pil.new("RGB", rgb.size, background)).convert("L")
+    box = diff.point(lambda value: 255 if value > CROP_TOLERANCE else 0).getbbox()
+    if not box:
+        return None
+    pad = max(24, int(0.04 * max(box[2] - box[0], box[3] - box[1])))
+    x0, y0 = max(0, box[0] - pad), max(0, box[1] - pad)
+    x1, y1 = min(width, box[2] + pad), min(height, box[3] + pad)
+    if (x1 - x0) < CROP_MIN_SIZE or (y1 - y0) < CROP_MIN_SIZE:
+        return None
+    if (x1 - x0) * (y1 - y0) > (1.0 - CROP_MIN_SAVING) * width * height:
+        return None
+    return (x0, y0, x1, y1)
+
+
 def _identity_matrix() -> List[List[float]]:
     return _scale_matrix(1.0, 1.0)
 
@@ -216,13 +249,40 @@ def _attach_coordinate_contract(prep: Dict[str, Any],
     return contract
 
 
-def prepare_model_image(path: str, max_dim: int = DEFAULT_MAX_DIM) -> Dict[str, Any]:
+def _crop_size(crop_box, source_width, source_height):
+    if not crop_box:
+        return 0.0, 0.0, float(source_width), float(source_height)
+    return float(crop_box[0]), float(crop_box[1]), float(crop_box[2] - crop_box[0]), float(crop_box[3] - crop_box[1])
+
+
+def _observed_to_source(crop_box, source_width, source_height, width, height):
+    if not (source_width > 0 and source_height > 0 and width > 0 and height > 0):
+        return []
+    x0, y0, region_w, region_h = _crop_size(crop_box, source_width, source_height)
+    sx, sy = region_w / float(width), region_h / float(height)
+    return [[sx, 0.0, x0], [0.0, sy, y0], [0.0, 0.0, 1.0]]
+
+
+def _source_to_observed(crop_box, source_width, source_height, width, height):
+    if not (source_width > 0 and source_height > 0 and width > 0 and height > 0):
+        return []
+    x0, y0, region_w, region_h = _crop_size(crop_box, source_width, source_height)
+    sx, sy = width / region_w, height / region_h
+    return [[sx, 0.0, -x0 * sx], [0.0, sy, -y0 * sy], [0.0, 0.0, 1.0]]
+
+
+def prepare_model_image(path: str, max_dim: int = DEFAULT_MAX_DIM,
+                        crop_to_content: bool = False) -> Dict[str, Any]:
     """Resolve any local image into a model-viewable PNG/JPEG.
 
     Pipeline: resolve & exist-check → convert WMF→PNG (reusing the shared
     converter) → transcode BMP/TIFF→PNG with Pillow → downscale oversized
     rasters to ``max_dim`` on the long edge. The returned dict tells the tool
     layer whether ``image_path`` can be embedded as MCP image content.
+
+    ``crop_to_content`` first removes uniform background margins (only when that saves
+    at least 15% of the area); ``observed_to_source`` then carries the crop offset, so
+    pixel coordinates still map exactly back to the uncropped source image.
     """
     prep = _empty_prep(str(path or ""))
     max_dim = _clamp_max_dim(max_dim)
@@ -301,11 +361,30 @@ def prepare_model_image(path: str, max_dim: int = DEFAULT_MAX_DIM) -> Dict[str, 
     width = height = 0
     source_width = source_height = 0
     downscaled = False
+    crop_box = None
+    if crop_to_content and pil is None:
+        prep["warnings"].append("crop_to_content needs Pillow; the full image is returned.")
     if pil is not None:
         try:
             with pil.open(working) as img:
                 width, height = img.size
                 source_width, source_height = width, height
+                if crop_to_content:
+                    crop_box = _content_crop_box(img, pil)
+                    if crop_box:
+                        cropped = img.convert("RGB").crop(crop_box)
+                        cropped_path = working.with_name(f"{working.stem}_crop.png")
+                        cropped.save(cropped_path, format="PNG")
+                        working = cropped_path
+                        suffix = ".png"
+                        width, height = cropped.size
+                        img = cropped
+                        prep["warnings"].append(
+                            f"Cropped to content {width}x{height} from {source_width}x{source_height}; "
+                            "coordinates map back through observed_to_source."
+                        )
+                    else:
+                        prep["warnings"].append("No useful content crop was found; the full image is returned.")
                 long_edge = max(width, height)
                 if long_edge > max_dim:
                     scale = max_dim / float(long_edge)
@@ -357,22 +436,10 @@ def prepare_model_image(path: str, max_dim: int = DEFAULT_MAX_DIM) -> Dict[str, 
                 "height": int(source_height),
             },
             "observed_image": {"width": int(width), "height": int(height)},
-            "observed_to_source": (
-                _scale_matrix(
-                    source_width / float(width),
-                    source_height / float(height),
-                )
-                if source_width > 0 and source_height > 0 and width > 0 and height > 0
-                else []
-            ),
-            "source_to_observed": (
-                _scale_matrix(
-                    width / float(source_width),
-                    height / float(source_height),
-                )
-                if source_width > 0 and source_height > 0 and width > 0 and height > 0
-                else []
-            ),
+            "observed_to_source": _observed_to_source(crop_box, source_width, source_height, width, height),
+            "source_to_observed": _source_to_observed(crop_box, source_width, source_height, width, height),
+            "crop": ({"applied": True, "box_source_pixels": list(crop_box)} if crop_box
+                     else {"applied": False}),
             "downscaled": downscaled,
             "file_bytes": int(file_bytes),
         }
@@ -381,9 +448,9 @@ def prepare_model_image(path: str, max_dim: int = DEFAULT_MAX_DIM) -> Dict[str, 
 
 
 def view_image(path: str, max_dim: int = DEFAULT_MAX_DIM,
-               label: str = "") -> ToolResult:
+               label: str = "", crop_to_content: bool = False) -> ToolResult:
     """ToolResult describing an arbitrary local image for direct model viewing."""
-    prep = prepare_model_image(path, max_dim=max_dim)
+    prep = prepare_model_image(path, max_dim=max_dim, crop_to_content=crop_to_content)
     if not prep["ok"]:
         return error_result(
             prep.get("reason") or "Could not read the image.",
@@ -511,7 +578,8 @@ def resolve_snapshot_images(snapshot_id: Optional[str] = None,
                             which: str = "auto",
                             max_dim: int = DEFAULT_MAX_DIM,
                             database: Optional[CADDatabase] = None,
-                            tile_id: Optional[str] = None) -> ToolResult:
+                            tile_id: Optional[str] = None,
+                            crop_to_content: bool = False) -> ToolResult:
     """Resolve a prior view snapshot's image(s) into model-viewable payloads."""
     db = get_db(database)
     try:
@@ -579,7 +647,9 @@ def resolve_snapshot_images(snapshot_id: Optional[str] = None,
     images: List[Dict[str, Any]] = []
     warnings: List[str] = []
     for candidate in candidates:
-        prep = prepare_model_image(candidate["path"], max_dim=max_dim)
+        # Tiles are already crops; only whole-view images are trimmed, each to its own content.
+        prep = prepare_model_image(candidate["path"], max_dim=max_dim,
+                                   crop_to_content=bool(crop_to_content) and tile is None)
         prep["role"] = candidate["role"]
         if prep.get("embeddable"):
             _attach_resolved_coordinate_contract(

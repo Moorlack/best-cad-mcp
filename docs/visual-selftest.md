@@ -61,3 +61,8 @@ After updating, ask Claude:
 > Call check_visual_pipeline and report PASS/FAIL for each check. Do not modify
 > or save AutoCAD drawings. Confirm that live_autocad_export_tested and
 > client_image_display_tested are false; do not claim those were verified.
+
+## Обрезка пустых полей (`crop_to_content`)
+
+Опция отключена по умолчанию. Фон определяется по цвету углов; bbox пикселей, отличающихся от фона (допуск 12), расширяется отступом (≥24 px или 4%). Если обрезка экономит меньше 15% площади, картинка однотонная или углы разного цвета — возвращается полное изображение.
+Матрицы `observed_to_source` = translate(x0,y0)·scale, `source_to_observed` — обратная, поэтому контракт координат (`observed_to_global`) остаётся точным; `crop.box_source_pixels` — рамка в пикселях исходного растра. Тайлы не обрезаются.

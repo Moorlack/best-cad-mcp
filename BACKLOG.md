@@ -256,6 +256,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 live PASS (Claude, установленный `5f621eb`, один AutoCAD 2025 PID 15320 с TEST2.dwg, Civil 3D не запущен; порядок acad.exe → list → select по полному пути → get_document_info: 27 объектов, 11 слоёв, 45 блоков, saved=true; CMLSCALE=1, CMLJUST=0): `Update()` в `add_mline` помог. `draw_mline(scale=8)` на A-WALL-TEST: 8B0 top (ось y=16000…, y=2000), 8B1 zero (y=2200), 8B2 bottom (y=2400), длина 100; GetBoundingBox СРАЗУ после создания, без `regen`: 8B0 y 1992–2000, 8B1 2196–2204, 8B2 2400–2408, высота 8 (до исправления при a1f567f было 1.0 до регенерации). CMLSCALE и CMLJUST после тестов не изменились. Итог TEST2: 30 объектов, 12 слоёв, 45 блоков, saved=false; DWG не сохранялся и не закрывался.
 
+- [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): опция `crop_to_content` (по умолчанию выкл.) у `render_drawing_view`, `get_snapshot_image` (только целые виды, не тайлы) и `view_image`: обрезает однотонные поля по цвету углов (допуск 12, отступ ≥24 px), только если экономит ≥15% площади; `observed_to_source`/`source_to_observed` содержат смещение кропа, поэтому `observed_to_global` остаётся точным; в ответе поле `crop.box_source_pixels`. 708 тестов (+3), ruff PASS. Live-проверка: render_drawing_view(crop_to_content=true) на TEST2, затем map_pixel_to_world для пикселя известной сущности.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
