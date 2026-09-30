@@ -175,3 +175,39 @@ def test_remembered_instances_survive_rot_changes(ctrl, monkeypatch):
     assert ctrl.select_instance(document_path=r"C:\Tests\TEST2.dwg")["pinned_pid"] == 202
     monkeypatch.setattr(autocad_instances, "acad_process_pids", lambda: {101})  # AutoCAD closed
     assert {i["pid"] for i in ctrl.running_instances()} == {101}
+
+
+class _Doc:
+    def __init__(self, full, name):
+        self.FullName, self.Name, self.app = full, name, None
+
+    def Activate(self):
+        self.app.ActiveDocument = self
+
+
+class _Docs:
+    def __init__(self, docs):
+        self.docs = docs
+        self.Count = len(docs)
+
+    def Item(self, index):
+        return self.docs[index]
+
+
+class _App:
+    def __init__(self, docs):
+        for doc in docs:
+            doc.app = self
+        self.Documents, self.ActiveDocument = _Docs(docs), docs[0]
+
+
+def test_activate_document_matches_full_name_or_unsaved_name():
+    from src.autocad_instances import activate_document
+
+    a, b = _Doc("C:\\Work\\TEST2.dwg", "TEST2.dwg"), _Doc("", "Drawing1.dwg")
+    app = _App([a, b])
+    assert activate_document(app, "c:/work/test2.dwg") is True and app.ActiveDocument is a
+    assert activate_document(app, "Drawing1.dwg") is True and app.ActiveDocument is b
+    assert activate_document(app, "C:\\Work\\Other.dwg") is False and app.ActiveDocument is b
+    assert activate_document(app, "") is False
+    assert activate_document(object(), "x.dwg") is False

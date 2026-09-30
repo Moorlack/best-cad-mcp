@@ -167,14 +167,21 @@ class CADController:
             self.doc = None
             self._last_connect_error = None
             return {"success": True, "pinned_pid": None}
-        from src.autocad_instances import acad_process_pids
+        from src.autocad_instances import acad_process_pids, activate_document
         chosen = choose_instance(self.running_instances(), pid, document_path, acad_process_pids())
         if chosen is None:
             raise RuntimeError("No running AutoCAD instance was found.")
         self._pinned_pid = chosen["pid"]
         self.acad = chosen["app"]
         self.doc = None
-        return {"success": True, "pinned_pid": chosen["pid"], "instance": describe([chosen])[0]}
+        result = {"success": True, "pinned_pid": chosen["pid"], "instance": describe([chosen])[0]}
+        if document_path:
+            # Later tools use the active drawing: make the requested one active.
+            result["document_active"] = activate_document(chosen["app"], document_path)
+            if not result["document_active"]:
+                result["warning"] = ("The requested drawing could not be activated; "
+                                     "confirm the active drawing with get_document_info before any write.")
+        return result
 
     def _get_active_autocad(self):
         """Attach to the intended running AutoCAD; several instances require an explicit choice."""

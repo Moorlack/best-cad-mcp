@@ -139,3 +139,25 @@ def list_instances(prog_ids):
 
 def describe(instances):
     return [{k: v for k, v in inst.items() if k != "app"} for inst in instances]
+
+
+def activate_document(app, document_path):
+    """Make the open drawing whose FullName (or, when unsaved, Name) matches the active one.
+
+    Selecting an instance by document path must also select that drawing, otherwise later
+    tools act on whichever drawing happens to be active. Returns True when it is active.
+    """
+    if not document_path:
+        return False
+    target = _norm(document_path)
+    try:
+        documents = app.Documents
+        for index in range(int(documents.Count)):
+            document = documents.Item(index)
+            names = {_norm(getattr(document, "FullName", "") or ""), _norm(getattr(document, "Name", "") or "")}
+            if target in names:
+                document.Activate()
+                return _norm(getattr(app.ActiveDocument, "FullName", "") or getattr(app.ActiveDocument, "Name", "")) in names
+    except Exception:
+        return False
+    return False

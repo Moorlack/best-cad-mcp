@@ -54,3 +54,8 @@ Civil виден как remembered_reference. Данные TEST2 до/после
 должен сообщить о двух экземплярах; `list_autocad_instances` — оба pid и чертежи;
 `select_autocad_instance(document_path=<TEST2>)`; `get_document_info` → TEST2.dwg;
 только после этого тестовые изменения в TEST2.
+
+## Активация выбранного документа (checkout, ожидает live-проверки)
+
+`select_autocad_instance(document_path=...)` теперь делает указанный чертёж активным (`autocad_instances.activate_document`, сравнение по FullName или Name для несохранённых). Результат содержит `document_active`; при неудаче — `warning` с просьбой проверить активный чертёж через get_document_info до записи. Причина: инструменты работают с ActiveDocument, а выбор экземпляра раньше не менял активный чертёж (live 2026-09-30: после выбора TEST2 get_document_info показал Drawing1).
+

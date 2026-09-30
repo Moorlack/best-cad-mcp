@@ -3940,7 +3940,8 @@ def select_autocad_instance(ctx: Context, pid: Optional[int] = None, document_pa
     """Pin this MCP session to one AutoCAD process, by pid or by the full path of a drawing it has open.
 
     Needed when several AutoCAD instances run (e.g. Civil 3D and AutoCAD share one COM ProgID).
-    clear=True removes the pin. Does not change any drawing.
+    With document_path the drawing is also made the active one (result.document_active); confirm
+    with get_document_info before any write. clear=True removes the pin. Does not change any drawing.
     """
     return utility_tools.select_autocad_instance(pid=pid, document_path=document_path, clear=clear)
 
