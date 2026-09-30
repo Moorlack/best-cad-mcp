@@ -118,8 +118,8 @@ CROP_MIN_SIZE = 32
 CROP_TOLERANCE = 12          # per-channel difference still counted as background
 
 
-def _content_crop_box(img, pil) -> Optional[tuple]:
-    """(x0, y0, x1, y1) around the non-background content with padding, or None when not useful."""
+def raw_content_box(img, pil) -> Optional[tuple]:
+    """(x0, y0, x1, y1) of the pixels that differ from the corner background colour, or None."""
     from PIL import ImageChops  # imported lazily: Pillow is an optional extra
 
     rgb = img.convert("RGB")
@@ -131,7 +131,24 @@ def _content_crop_box(img, pil) -> Optional[tuple]:
     if corners.count(background) < 2:
         return None
     diff = ImageChops.difference(rgb, pil.new("RGB", rgb.size, background)).convert("L")
-    box = diff.point(lambda value: 255 if value > CROP_TOLERANCE else 0).getbbox()
+    return diff.point(lambda value: 255 if value > CROP_TOLERANCE else 0).getbbox()
+
+
+def detect_content_box(path) -> Optional[tuple]:
+    """Content bounding box (pixels) of a raster file, or None when it cannot be determined."""
+    try:
+        from PIL import Image as pil
+
+        with pil.open(path) as img:
+            return raw_content_box(img, pil)
+    except Exception:
+        return None
+
+
+def _content_crop_box(img, pil) -> Optional[tuple]:
+    """(x0, y0, x1, y1) around the non-background content with padding, or None when not useful."""
+    width, height = img.size
+    box = raw_content_box(img, pil)
     if not box:
         return None
     pad = max(24, int(0.04 * max(box[2] - box[0], box[3] - box[1])))

@@ -1518,6 +1518,74 @@ def _cache_freshness(database: CADDatabase, has_cache: bool) -> Optional[Dict[st
         return None
 
 
+RASTER_FIT_MIN_DEVIATION = 0.02   # edge error (share of image size) that triggers the raster fit
+RASTER_FIT_MAX_ASPECT_SKEW = 0.06  # x/y scale disagreement above which the detected box is not trusted
+
+
+def _fit_view_to_raster_content(extent: BBox,
+                                content_box: Sequence[float],
+                                image_width: int,
+                                image_height: int,
+                                predicted_box: Optional[Sequence[float]] = None) -> Optional[Dict[str, Any]]:
+    """View that maps the scanned extent onto the content actually drawn in the raster.
+
+    AutoCAD's WMF frame is not always the selected extent plus a small margin (the
+    frame can be much larger, with the drawing off-centre).  When the drawn pixels
+    disagree with the extent-based prediction, anchor the extent to the detected
+    content box instead.  Returns None when the detection is absent or implausible.
+    """
+    min_x, min_y, max_x, max_y = [float(v) for v in extent]
+    world_w, world_h = max_x - min_x, max_y - min_y
+    x0, y0, x1, y1 = [float(v) for v in list(content_box)[:4]]
+    px_w, px_h = x1 - x0, y1 - y0
+    if min(world_w, world_h, px_w, px_h) <= 0:
+        return None
+    if predicted_box is not None:
+        limit = RASTER_FIT_MIN_DEVIATION * max(image_width, image_height)
+        if max(abs(a - b) for a, b in zip(predicted_box, (x0, y0, x1, y1))) <= limit:
+            return None  # the extent-based mapping already matches the raster
+    scale_x, scale_y = px_w / world_w, px_h / world_h
+    if abs(scale_x - scale_y) / max(scale_x, scale_y) > RASTER_FIT_MAX_ASPECT_SKEW:
+        return None
+    scale = (scale_x + scale_y) / 2.0
+    # Pixel of the extent centre must be the content-box centre.
+    offset_x = (image_width / 2.0) - (x0 + x1) / 2.0
+    offset_y = (image_height / 2.0) - (y0 + y1) / 2.0
+    center_x = (min_x + max_x) / 2.0 + offset_x / scale
+    center_y = (min_y + max_y) / 2.0 - offset_y / scale
+    return {
+        "center": [center_x, center_y, 0.0],
+        "target": [center_x, center_y, 0.0],
+        "height": image_height / scale,
+        "width": image_width / scale,
+        "direction": [0.0, 0.0, 1.0],
+        "view_direction": [0.0, 0.0, 1.0],
+        "twist": 0.0,
+    }
+
+
+def _fit_raster_content_view(raster_path: Path,
+                             vlm_ready: bool,
+                             scanned_extent: BBox,
+                             extent_view: Dict[str, Any],
+                             image_width: int,
+                             image_height: int) -> Optional[Dict[str, Any]]:
+    if not vlm_ready or Path(raster_path).suffix.lower() == ".wmf":
+        return None
+    from .vision import detect_content_box
+
+    content_box = detect_content_box(raster_path)
+    if not content_box:
+        return None
+    predicted = None
+    try:
+        matrix = compute_view_transform(extent_view, image_width, image_height)["world_to_pixel"]
+        predicted = bbox_world_to_pixel(scanned_extent, matrix)
+    except Exception:
+        predicted = None
+    return _fit_view_to_raster_content(scanned_extent, content_box, image_width, image_height, predicted)
+
+
 def _scanned_entity_extent(database: CADDatabase) -> Optional[BBox]:
     return bbox_union(bbox_from_row(entity) for entity in all_entities(database))
 
@@ -1713,6 +1781,14 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         warnings.append(
             "WMF selection-set export mapping was derived from scanned entity extents with only AutoCAD's calibrated proportional frame margin."
         )
+        fitted = _fit_raster_content_view(raster_path, vlm_ready, scanned_extent, context["view"],
+                                          image_width, image_height)
+        if fitted is not None:
+            context["view"] = fitted
+            mapping_view_source = "raster_content_fit_for_wmf_export"
+            warnings.append(
+                "Drawn content in the raster did not match the extent-based frame; mapping was fitted to the detected content box."
+            )
     transform = compute_view_transform(
         context["view"],
         image_width,

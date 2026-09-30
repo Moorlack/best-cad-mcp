@@ -426,3 +426,31 @@ def test_snapshot_keeps_confidence_for_consistent_cache(tmp_path, monkeypatch):
     snapshot = _export_with_fingerprint(tmp_path, monkeypatch, live_count=1)
     assert snapshot["cache_freshness"]["status"] == "consistent_with_scan"
     assert snapshot["transform_confidence"] == "normal"
+
+
+def test_raster_fit_anchors_extent_to_drawn_content():
+    from src.cad_understanding import view_grounding as vg
+
+    extent = (2395.6, 1583.8, 10316.8, 9163.3)
+    view = vg._fit_view_to_raster_content(extent, (568, 227, 1015, 655), 2400, 1018)
+    matrix = vg.compute_view_transform(view, 2400, 1018)["world_to_pixel"]
+    box = vg.bbox_world_to_pixel(extent, matrix)
+    assert box == pytest.approx([568, 227, 1015, 655], abs=0.5)
+
+
+def test_raster_fit_skipped_when_prediction_already_matches_or_implausible():
+    from src.cad_understanding import view_grounding as vg
+
+    extent = (0.0, 0.0, 1000.0, 500.0)
+    box = (10.0, 10.0, 790.0, 390.0)
+    # Prediction within 2% of the image size: keep the extent-based mapping.
+    assert vg._fit_view_to_raster_content(extent, box, 800, 400, predicted_box=(12, 9, 791, 388)) is None
+    # x/y scales disagree by far more than 6%: the detected box is not trusted.
+    assert vg._fit_view_to_raster_content(extent, (10, 10, 790, 100), 800, 400) is None
+    assert vg._fit_view_to_raster_content(extent, (0, 0, 0, 0), 800, 400) is None
+
+
+def test_detect_content_box_reports_raw_bbox(tmp_path):
+    src = _content_png(tmp_path / "raw.png", box=(1000, 400, 1300, 600))
+    assert vision.detect_content_box(src) == (1000, 400, 1300, 600)
+    assert vision.detect_content_box(tmp_path / "missing.png") is None
