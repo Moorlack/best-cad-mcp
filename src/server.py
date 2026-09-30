@@ -5261,7 +5261,8 @@ def analyze_geometry(ctx: Context, entity_limit: int = 10000,
                      reference_lengths: Optional[List[Dict[str, Any]]] = None,
                      parallel_separation_range: Optional[List[float]] = None,
                      parallel_angle_tolerance_degrees: Optional[float] = None,
-                     junction_tolerance: Optional[float] = None) -> Dict[str, Any]:
+                     junction_tolerance: Optional[float] = None,
+                     max_list_items: Optional[int] = 200) -> Dict[str, Any]:
     """Read-only geometry checks for any domain, independent of layer naming conventions.
 
     Run a fresh scan first. Exact handles/layers filters intersect; omitted filters
@@ -5274,12 +5275,14 @@ def analyze_geometry(ctx: Context, entity_limit: int = 10000,
     pair_junctions lists corner/T/crossing/collinear-gap candidates between pair
     midlines; optional junction_tolerance overrides the default (larger width).
     Inspect exclusions and coverage; no automatic repair or engineering conclusions.
+    Long lists are trimmed to max_list_items (default 200; null = no limit) so the response stays
+    readable; truncated_lists gives each total and counts elsewhere are complete.
     """
     return understanding_geometry.analyze_geometry(entity_limit=entity_limit, handles=handles,
         layers=layers, gap_tolerance=gap_tolerance, reference_lengths=reference_lengths,
         parallel_separation_range=parallel_separation_range,
         parallel_angle_tolerance_degrees=parallel_angle_tolerance_degrees,
-        junction_tolerance=junction_tolerance)
+        junction_tolerance=junction_tolerance, max_list_items=max_list_items)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
@@ -5290,7 +5293,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   wall_thickness_range: Optional[List[float]] = None,
                                   wall_junction_tolerance: Optional[float] = None,
                                   wall_opening_max_width: Optional[float] = None,
-                                  name_aliases: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+                                  name_aliases: Optional[Dict[str, List[str]]] = None,
+                                  max_list_items: Optional[int] = 200) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5314,12 +5318,14 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     Layer/block names are matched by whole words in English, Russian, Ukrainian, transliterated
     Russian and German, splitting CamelCase and separators; optional name_aliases
     {wall|door|window|opening|grid|column|slab_boundary|room_boundary: [words]} adds project words.
+    Long lists (candidates, segments, pairs, ...) are trimmed to max_list_items (default 200; null = no
+    limit) to keep the response readable; truncated_lists gives each total, other counts are complete.
     """
     return understanding_architecture.analyze_architectural_drawing(
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
         wall_gap_tolerance=wall_gap_tolerance, wall_thickness_range=wall_thickness_range,
         wall_junction_tolerance=wall_junction_tolerance, wall_opening_max_width=wall_opening_max_width,
-        name_aliases=name_aliases)
+        name_aliases=name_aliases, max_list_items=max_list_items)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))

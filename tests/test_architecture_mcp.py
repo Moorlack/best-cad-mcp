@@ -63,4 +63,4 @@ def test_native_mcp_passes_explicit_project_id():
     analyze.assert_called_once_with(entity_limit=10000, project_id="native-test", reference_lengths=None,
                                     wall_gap_tolerance=0.25, wall_thickness_range=None,
                                     wall_junction_tolerance=None, wall_opening_max_width=None,
-                                   name_aliases=None)
+                                   name_aliases=None, max_list_items=200)

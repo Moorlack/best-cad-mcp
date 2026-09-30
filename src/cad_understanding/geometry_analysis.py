@@ -8,6 +8,7 @@ from copy import deepcopy
 from .block_attributes import summarize_block_attributes
 from . import boundaries as boundary_limits
 from .boundaries import check_boundary
+from .report_limits import GEOMETRY_LIST_PATHS, limit_lists, validate_max_list_items
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
 from .line_networks import build_line_networks
@@ -139,7 +140,8 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
 
 def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_tolerance=None,
                      reference_lengths=None, parallel_separation_range=None,
-                     parallel_angle_tolerance_degrees=None, junction_tolerance=None, database=None):
+                     parallel_angle_tolerance_degrees=None, junction_tolerance=None, database=None,
+                     max_list_items=200):
     # Lazy imports keep the pure entry point independent of SQLite/AutoCAD/MCP runtime.
     from .ir_builder import build_drawing_ir
     from .result import error_result, ok_result
@@ -153,6 +155,7 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
         validate_separation_range(parallel_separation_range)
         validate_angle_tolerance(parallel_angle_tolerance_degrees)
         validate_junction_tolerance(junction_tolerance)
+        validate_max_list_items(max_list_items)
         if reference_lengths is not None:
             validate_references(reference_lengths)
         snapshot = build_drawing_ir(database=database, rescan=False, sections=['entities'],
@@ -164,5 +167,8 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
         return error_result(str(exc))
     from .snapshot_freshness import apply_to_report, check_snapshot_freshness
     freshness_warning = apply_to_report(report, check_snapshot_freshness(database))
+    warnings = [freshness_warning, 'geometry_scale_unverified']
+    if limit_lists(report, GEOMETRY_LIST_PATHS, max_list_items):
+        warnings.append('report_lists_truncated')
     return ok_result('Built domain-neutral geometry report; inspect coverage and limitations.',
-                     data={'report': report}, warnings=[freshness_warning, 'geometry_scale_unverified'])
+                     data={'report': report}, warnings=warnings)
