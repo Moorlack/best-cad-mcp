@@ -3335,3 +3335,38 @@ def ground_vlm_overlay_id(snapshot_id: str,
 def overlay_id_sort_key(value: str) -> Tuple[int, str]:
     match = re.search(r"(\d+)$", value or "")
     return (int(match.group(1)) if match else 0, value or "")
+
+
+_COMPACT_DROP_SNAPSHOT_KEYS = ("entity_overlay_items", "entity_screen_bboxes", "visible_handles", "transform_chain")
+_COMPACT_EMPTY_ITEM_KEYS = ("pixel_path", "world_path", "semantic_tags", "native_handle")
+
+
+def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
+    """Shrink an export_view_image_with_mapping result for direct model reading.
+
+    The full snapshot stays in the database and the mapping JSON; this only drops
+    duplicated lists (entity items repeat overlay items, screen boxes repeat item
+    pixel boxes, visible handles repeat the top-level handles) and empty item fields.
+    """
+    snapshot = ((export.get("data") or {}).get("snapshot"))
+    if not isinstance(snapshot, dict):
+        return export
+    slim = {key: value for key, value in snapshot.items() if key not in _COMPACT_DROP_SNAPSHOT_KEYS}
+
+    def trim(item: Any) -> Any:
+        if not isinstance(item, dict):
+            return item
+        return {key: value for key, value in item.items()
+                if not (key in _COMPACT_EMPTY_ITEM_KEYS and (not value or key == "native_handle"))}
+
+    for key in ("overlay_items", "primitive_overlay_items", "semantic_overlay_items"):
+        if isinstance(slim.get(key), list):
+            slim[key] = [trim(item) for item in slim[key]]
+    slim["compact"] = {
+        "dropped": [key for key in _COMPACT_DROP_SNAPSHOT_KEYS if key in snapshot],
+        "full_snapshot": snapshot.get("context_json_path", ""),
+        "note": "Duplicated lists omitted; read the mapping JSON or use get_visible_entities_in_view for the full snapshot.",
+    }
+    compact = dict(export)
+    compact["data"] = {**export["data"], "snapshot": slim}
+    return compact

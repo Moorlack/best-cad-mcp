@@ -5646,7 +5646,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
                         include_tiles: bool = False,
                         tile_size: int = 640,
                         tile_overlap: float = 0.2,
-                        crop_to_content: bool = False) -> Any:
+                        crop_to_content: bool = False,
+                        compact: bool = True) -> Any:
     """Export the current AutoCAD view with mapping AND embed the rendered image.
 
     Returns the world/pixel/handle mapping summary as text plus the rendered
@@ -5670,6 +5671,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         max_dim: Long-edge pixel cap for the embedded image (default 1568).
         crop_to_content: Trim empty margins of the embedded image so the drawing
             gets more pixels; observed_to_global stays exact.
+        compact: Omit duplicated lists (entity items, screen boxes, visible handles)
+            from the returned mapping text; the full snapshot stays in the mapping JSON.
     """
     export = understanding_view.export_view_image_with_mapping(
         filepath=filepath,
@@ -5687,6 +5690,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
     snapshot_id = snapshot.get("snapshot_id")
     if not snapshot_id:
         return [export]
+    if compact:
+        export = understanding_view.compact_export_for_model(export)
     vision_result = understanding_vision.resolve_snapshot_images(
         snapshot_id=snapshot_id, which=which, max_dim=max_dim,
         crop_to_content=crop_to_content)

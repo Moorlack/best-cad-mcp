@@ -454,3 +454,24 @@ def test_detect_content_box_reports_raw_bbox(tmp_path):
     src = _content_png(tmp_path / "raw.png", box=(1000, 400, 1300, 600))
     assert vision.detect_content_box(src) == (1000, 400, 1300, 600)
     assert vision.detect_content_box(tmp_path / "missing.png") is None
+
+
+def test_compact_export_drops_duplicated_lists_and_keeps_mapping(tmp_path, monkeypatch):
+    from src.cad_understanding import view_grounding as vg
+
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    db.upsert_entity("P1", "Polyline", "AcDbPolyline", layer="L", geometry={}, bbox=(0, 0, 80, 40))
+    export = export_view_image_with_mapping(filepath=write_png(tmp_path / "v.png", size=(800, 400)), database=db)
+    snapshot = export["data"]["snapshot"]
+    compact = vg.compact_export_for_model(export)
+    slim = compact["data"]["snapshot"]
+    for key in ("entity_overlay_items", "entity_screen_bboxes", "visible_handles", "transform_chain"):
+        assert key not in slim
+    assert slim["world_to_pixel"] == snapshot["world_to_pixel"]
+    assert slim["snapshot_id"] == snapshot["snapshot_id"]
+    assert slim["overlay_items"] and "pixel_path" not in slim["overlay_items"][0]
+    assert slim["overlay_items"][0]["pixel_bbox"] == snapshot["overlay_items"][0]["pixel_bbox"]
+    assert len(str(compact)) < len(str(export))
+    assert "entity_overlay_items" in export["data"]["snapshot"]  # original untouched
+    assert vg.compact_export_for_model({"ok": False}) == {"ok": False}

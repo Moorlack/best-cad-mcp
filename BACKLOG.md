@@ -268,6 +268,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 live PASS подгонки mapping (Claude, установленный `972ce82`, AutoCAD PID 42288, TEST2 27 объектов, DWG не менялся): render_drawing_view → `mapping_view_source=raster_content_fit_for_wmf_export`, 0.0564 px/ед. (было 0.1333). Независимая сверка по пикселям PNG: синие линии блоков по y = 228/290/363/636 при предсказанных 227.7/290.3/362.8/636.6, по x = 592/671/751/832 при 589.6/670.5/750.9/831.3 (≤2 px). `map_pixel_to_world(671,228)` → (4221.5, 9146.9) при ожидаемых ≈(4207, 9153) — ошибка ≈12 ед. (<1 px). Осталось: ограничить размер ответа render_drawing_view; `ground_vlm_region` на этом снимке не проверялся.
 
+- [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): `render_drawing_view(compact=True)` (по умолчанию) убирает из возвращаемого текста дубли (`entity_overlay_items`, `entity_screen_bboxes`, `visible_handles`, `transform_chain`) и пустые поля элементов (`pixel_path`, `world_path`, `semantic_tags`, `native_handle`); `compact=false` возвращает всё; полный снимок остаётся в БД и mapping JSON (`view_grounding.compact_export_for_model`). 749 тестов (+1), ruff PASS. Live: render_drawing_view на TEST2 — ответ заметно короче (раньше >25k токенов), world_to_pixel/overlay_items.pixel_bbox те же.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
