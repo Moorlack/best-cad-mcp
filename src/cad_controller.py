@@ -3939,6 +3939,7 @@ class CADController:
                         "AcDbSpline", "AcDbPolyline", "AcDb2dPolyline",
                         "AcDb3dPolyline",
                         "AcDbBlockReference", "AcDbMline",
+                        "AcDbRotatedDimension", "AcDbAlignedDimension",
                     }
                 )
                 if read_common_properties or capture_entity_geometry:
@@ -4056,6 +4057,22 @@ class CADController:
                                 info[field] = cast(com_get(typed_ent, prop, None))
                             except (TypeError, ValueError):
                                 info[field] = None
+                    elif obj_name in {"AcDbRotatedDimension", "AcDbAlignedDimension"}:
+                        # Linear dimensions only: measured value and the two measured points, used to
+                        # compare the drawn geometry with its own dimension values.
+                        measurement = com_get(typed_ent, "Measurement", None)
+                        if isinstance(measurement, (int, float)) and math.isfinite(measurement):
+                            info["measurement"] = float(measurement)
+                        for field, prop in (("xline1_point", "ExtLine1Point"), ("xline2_point", "ExtLine2Point")):
+                            point = self._scan_point(com_get(typed_ent, prop, None))
+                            if point:
+                                info[field] = point
+                        rotation = com_get(typed_ent, "Rotation", None)
+                        if obj_name == "AcDbRotatedDimension" and isinstance(rotation, (int, float)):
+                            info["dimension_rotation"] = float(rotation)
+                        override = com_get(typed_ent, "TextOverride", "")
+                        info["text_override"] = override if isinstance(override, str) else ""
+                        info["dimension_linear_factor"] = com_get(typed_ent, "LinearScaleFactor", None)
                     elif obj_name == "AcDbBlockReference":
                         # Preserve reference metadata, never explode or traverse a block.
                         from src.cad_understanding.block_attributes import capture_block_attributes

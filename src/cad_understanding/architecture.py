@@ -16,6 +16,7 @@ from src.cad_database import CADDatabase
 
 from .ir_builder import build_drawing_ir
 from .block_attributes import summarize_block_attributes
+from . import boundaries as boundary_limits
 from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .project_card import get_project_card
@@ -24,6 +25,7 @@ from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
+from .dimension_scale import check_dimension_scale
 from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
 from .opening_swings import arc_from_geometry
 from .room_loops import find_room_loops
@@ -123,7 +125,7 @@ requires human review. Candidate counts are not counts of physical elements.
     candidates, unclassified, issues = [], [], []
     boundary_checks = []
     valid_boundaries = {}
-    boundary_budget = 100
+    boundary_budget = boundary_limits.MAX_BOUNDARY_CHECKS
 
     def issue(code: str, handles: list[str], message: str) -> None:
         issues.append({"code": code, "handles": handles, "message": message})
@@ -237,6 +239,16 @@ requires human review. Candidate counts are not counts of physical elements.
                 "boundary_check": deepcopy(boundary_check),
             })
 
+    dimension_scale = check_dimension_scale(entities)
+    if dimension_scale["checked"]:
+        if dimension_scale["status"] == "agrees":
+            issue("dimension_scale_consistent", [],
+                  f"{dimension_scale['checked']} linear dimensions agree with the drawn geometry; "
+                  "units and real-world scale are still only declared.")
+        else:
+            issue("dimension_scale_mismatch", [i["handle"] for i in dimension_scale["items"] if i["status"] == "differs"],
+                  "Some linear dimension values differ from the distance between their extension-line points; "
+                  "the drawing may not be drawn to scale or uses a dimension factor.")
     wall_lines = diagnose_wall_lines(candidates, truncated, wall_gap_tolerance, drawing.get("units", "unknown"))
     for gap in wall_lines["gap_search"]["candidates"]:
         issue("wall_endpoint_gap_candidate", gap["handles"],
@@ -310,6 +322,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "block_annotations": annotations,
         "boundary_checks": boundary_checks,
         "boundary_relations": relations,
+        "dimension_scale_check": dimension_scale,
         "wall_line_diagnostics": wall_lines,
         "wall_networks": build_wall_networks(candidates, wall_lines),
         "wall_segment_candidates": wall_segments,

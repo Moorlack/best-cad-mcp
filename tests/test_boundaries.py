@@ -56,7 +56,9 @@ def test_vertex_limit():
     assert check_boundary(contour([[i, 0] for i in range(257)]))["reason"] == "vertex_limit_exceeded"
 
 
-def test_report_work_limit_never_approves_unchecked_boundaries():
+def test_report_work_limit_never_approves_unchecked_boundaries(monkeypatch):
+    from src.cad_understanding import boundaries
+    monkeypatch.setattr(boundaries, "MAX_BOUNDARY_CHECKS", 100)
     entities = [{"handle": f"P{i:03}", "entity_type": "AcDbPolyline", "geometry": contour(
         [[0, 0], [10, 0], [10, 8], [0, 8]])} for i in range(101)]
     result = build_architectural_report({"schema_version": "cad-ir/v2", "sections": {

@@ -6,6 +6,7 @@ from collections import Counter
 from copy import deepcopy
 
 from .block_attributes import summarize_block_attributes
+from . import boundaries as boundary_limits
 from .boundaries import check_boundary
 from .boundary_relations import check_boundary_relations
 from .line_geometry import diagnose_lines, validate_gap_tolerance
@@ -84,7 +85,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
                 entity.get('layer', '0'))
             polyline_parts.extend(parts)
             polyline_excluded.extend(skipped)
-            check = check_boundary(g) if len(boundaries) < 100 else {
+            check = check_boundary(g) if len(boundaries) < boundary_limits.MAX_BOUNDARY_CHECKS else {
                 'status': 'not_verified', 'reason': 'report_boundary_limit_exceeded',
                 'geometric_area_drawing_units_squared': None}
             boundaries.append({'handle': h, **check})

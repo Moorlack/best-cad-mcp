@@ -3,11 +3,11 @@
 import hashlib
 import math
 from collections import Counter
-from itertools import combinations
 
 from .axis_junctions import find_axis_junctions
 from .line_geometry import EPS, eligible_lines
 from .polyline_parts import source_of
+from .spatial_pairs import line_boxes, pruned_pairs
 
 DEFAULT_ANGLE_TOLERANCE_DEGREES = 0.01
 MAX_ANGLE_TOLERANCE_DEGREES = 5.0
@@ -112,7 +112,11 @@ def find_parallel_pairs(candidates, separation_range, angle_tolerance_degrees=No
     ids = {c["handles"][0]: c.get("id", c["handles"][0]) for c in candidates}
     low, high = separation_range
     pairs, reasons = [], Counter()
-    for ha, hb in combinations(eligible, 2):
+    candidate_pairs = pruned_pairs(line_boxes(eligible), high * (1 + 1e-9))
+    skipped = len(eligible) * (len(eligible) - 1) // 2 - len(candidate_pairs)
+    if skipped:
+        reasons["far_apart_pruned"] += skipped
+    for ha, hb in candidate_pairs:
         measured, reason = _measure(eligible[ha], eligible[hb], tolerance)
         if reason:
             reasons[reason] += 1

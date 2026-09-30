@@ -3,6 +3,7 @@
 import math
 
 MAX_VERTICES = 256
+MAX_BOUNDARY_CHECKS = 500  # contours checked per report; the rest are listed as not verified
 MAX_FLATTENED_VERTICES = 1024
 MAX_BULGE = 1e6
 ARC_STEP = math.pi / 18  # 10 degrees per chord when an arc is flattened for the intersection test

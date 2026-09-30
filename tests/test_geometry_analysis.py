@@ -12,6 +12,14 @@ from src.cad_understanding.architecture import build_architectural_report
 from src.cad_understanding.geometry_analysis import build_geometry_report
 
 
+@pytest.fixture(autouse=True)
+def _small_line_limit(monkeypatch):
+    # These tests exercise the explicit limit behaviour; the production cap is much higher.
+    from src.cad_understanding import line_geometry
+    monkeypatch.setattr(line_geometry, "MAX_LINES", 100)
+
+
+
 def line(h, a, b, layer='PART-OUTLINE'):
     return {'handle': h, 'entity_type': 'AcDbLine', 'layer': layer,
             'geometry': {'start': a, 'end': b}}

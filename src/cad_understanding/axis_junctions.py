@@ -7,10 +7,11 @@ trimmed, extended or merged; every junction is geometric evidence only.
 """
 
 import math
-from itertools import combinations
+
+from .spatial_pairs import pruned_pairs
 
 EPS = 1e-9
-MAX_AXES = 500
+MAX_AXES = 5000
 PARALLEL_SIN = math.sin(math.radians(0.5))
 COLLINEAR_FRACTION = 0.1
 
@@ -57,6 +58,11 @@ def _parallel(a, b, pa, da, la, pb, db, lb, tol):
     return None
 
 
+def _axis_boxes(axes):
+    return {i: (min(a["start"][0], a["end"][0]), min(a["start"][1], a["end"][1]),
+                max(a["start"][0], a["end"][0]), max(a["start"][1], a["end"][1])) for i, a in enumerate(axes)}
+
+
 def find_axis_junctions(axes, tolerance=None, id_key="id"):
     """axes: [{id, start, end, width}] in one horizontal plane (z ignored).
 
@@ -73,7 +79,9 @@ def find_axis_junctions(axes, tolerance=None, id_key="id"):
             ok = False
         (usable if ok and len(usable) < MAX_AXES else skipped).append(axis)
     junctions = []
-    for a, b in combinations(usable, 2):
+    reach = tolerance if tolerance is not None else max((float(a["width"]) for a in usable), default=0.0)
+    for ia, ib in pruned_pairs(_axis_boxes(usable), reach):
+        a, b = usable[ia], usable[ib]
         pa, da, la = _vec(a)
         pb, db, lb = _vec(b)
         tol = tolerance if tolerance is not None else max(float(a["width"]), float(b["width"]))
@@ -121,7 +129,10 @@ def find_axis_gaps(axes, max_gap, id_key="id"):
         except (KeyError, TypeError, ValueError, ZeroDivisionError):
             pass
     gaps = []
-    for a, b in combinations(usable[:MAX_AXES], 2):
+    scanned = usable[:MAX_AXES]
+    reach = max_gap + max((float(a["width"]) for a in scanned), default=0.0)
+    for ia, ib in pruned_pairs(_axis_boxes(scanned), reach):
+        a, b = scanned[ia], scanned[ib]
         pa, da, la = _vec(a)
         pb, db, lb = _vec(b)
         if abs(da[0] * db[1] - da[1] * db[0]) >= PARALLEL_SIN:

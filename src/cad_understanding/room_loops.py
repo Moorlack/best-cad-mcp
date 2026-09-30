@@ -10,7 +10,7 @@ confirms a floor area or assigns use; a region without a matching room symbol is
 import hashlib
 import math
 
-MAX_LOOP_AXES = 500
+MAX_LOOP_AXES = 5000
 MIN_AREA_RATIO = 1e-9  # share of the squared drawing extent below which a face is ignored
 
 
@@ -32,10 +32,17 @@ def _cluster(points, tolerance, anchors=()):
             i = parent[i]
         return i
 
-    for i in range(len(points)):
-        for j in range(i + 1, len(points)):
-            if math.dist(points[i], points[j]) <= tolerance:
-                parent[find(j)] = find(i)
+    cell = max(tolerance, 1e-9)
+    grid = {}
+    for i, p in enumerate(points):
+        grid.setdefault((math.floor(p[0] / cell), math.floor(p[1] / cell)), []).append(i)
+    for i, p in enumerate(points):
+        cx, cy = math.floor(p[0] / cell), math.floor(p[1] / cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in grid.get((cx + dx, cy + dy), ()):
+                    if j > i and math.dist(p, points[j]) <= tolerance:
+                        parent[find(j)] = find(i)
     roots = {}
     labels = []
     for i in range(len(points)):

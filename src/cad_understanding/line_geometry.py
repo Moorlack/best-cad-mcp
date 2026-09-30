@@ -1,10 +1,9 @@
 """Domain-neutral diagnostics for normalized LINE records."""
 
 import math
-from itertools import combinations
 
 EPS = 1e-9
-MAX_LINES = 100
+MAX_LINES = 5000
 
 
 def validate_gap_tolerance(value, parameter_name="gap_tolerance"):
@@ -84,6 +83,7 @@ def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=No
                    drawing_units="unknown", scope="selected_LINE_entities",
                    review_key="requires_review", extra_excluded=()):
     from .polyline_parts import adjacent_parts
+    from .spatial_pairs import line_boxes, pruned_pairs
 
     validate_gap_tolerance(gap_tolerance)
     eligible, excluded = eligible_lines(candidates)
@@ -106,7 +106,12 @@ def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=No
         # Only present when polyline segments take part, so LINE-only reports keep their shape.
         result["polyline_segments"] = parts
         result["same_polyline_adjacent_pairs"] = 0
-    for ha, hb in combinations(eligible, 2):
+    # Large inputs skip pairs whose boxes are farther apart than the gap search reaches: those are
+    # disjoint by construction, so they are counted as checked without running the pair test.
+    pairs = pruned_pairs(line_boxes({key: points for key, points in eligible.items()}),
+                         (gap_tolerance or 0.0) + 1e-6)
+    pruned = result["total_pairs"] - len(pairs)
+    for ha, hb in pairs:
         if parts and adjacent_parts(by_key[ha], by_key[hb]):
             result["same_polyline_adjacent_pairs"] += 1
             continue
@@ -133,6 +138,9 @@ def diagnose_lines(candidates, entity_coverage_truncated=False, gap_tolerance=No
                                   {"handle": hb, "endpoint": "start" if ib == 0 else "end",
                                    "point": list(eligible[hb][ib])}],
                     "status": "candidate", review_key: True})
+    result["checked_pairs"] += pruned
+    if gap_tolerance is not None:
+        result["gap_search"]["disjoint_pairs_checked"] += pruned
     result["gaps_checked"] = gap_tolerance is not None and not (
         excluded or result["unverified_pairs"] or entity_coverage_truncated)
     return result

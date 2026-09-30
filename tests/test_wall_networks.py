@@ -1,6 +1,14 @@
 from copy import deepcopy
 
+import pytest
+
 from src.cad_understanding.architecture import build_architectural_report
+
+@pytest.fixture(autouse=True)
+def _small_line_limit(monkeypatch):
+    # These tests exercise the explicit limit behaviour; the production cap is much higher.
+    from src.cad_understanding import line_geometry
+    monkeypatch.setattr(line_geometry, "MAX_LINES", 100)
 
 
 def line(h, a, b, layer='A-WALL'):
