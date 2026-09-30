@@ -276,6 +276,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): `analyze_geometry` для LINE без сохранённой геометрии (скан с capture_visual_geometry=false) теперь даёт причину исключения `geometry_not_captured`, а `invalid_coordinates` остаётся только для непригодных значений (inf/NaN и т.п.). 750 тестов (+1), ruff PASS. Live: scan с capture_visual_geometry=false → analyze_geometry должен показать geometry_not_captured.
 
+- [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): `render_drawing_view(compact=True)` дополнительно убирает из vision-части `images[].coordinate_contract` (идентичен `source_ref_template`) и список `source_ref_templates`; матрицы, `source_ref_template` у изображения и верхнего уровня остаются (`vision.compact_vision_for_model`). 751 тест (+1), ruff PASS. Live: render_drawing_view → нет coordinate_contract/source_ref_templates, source_ref_template и observed_to_global на месте; затем map_pixel_to_world/ground_vlm_region по этому снимку.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы

@@ -906,3 +906,27 @@ def _module_available(name: str) -> bool:
         return importlib.util.find_spec(name) is not None
     except Exception:  # pragma: no cover
         return False
+
+
+def compact_vision_for_model(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop verbatim repeats of the coordinate contract from a snapshot-image result.
+
+    Each image already carries ``source_ref_template`` (identical to its
+    ``coordinate_contract``); the ``source_ref_templates`` list repeats those per image.
+    Matrices and the per-image/top-level templates stay, so grounding is unchanged.
+    """
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        return result
+    slim = dict(data)
+    slim.pop("source_ref_templates", None)
+    images = []
+    for image in data.get("images") or []:
+        if isinstance(image, dict) and image.get("coordinate_contract") == image.get("source_ref_template"):
+            image = {k: v for k, v in image.items() if k != "coordinate_contract"}
+        images.append(image)
+    if "images" in data:
+        slim["images"] = images
+    compact = dict(result)
+    compact["data"] = slim
+    return compact

@@ -5672,7 +5672,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         crop_to_content: Trim empty margins of the embedded image so the drawing
             gets more pixels; observed_to_global stays exact.
         compact: Omit duplicated lists (entity items, screen boxes, visible handles)
-            from the returned mapping text; the full snapshot stays in the mapping JSON.
+            and repeated coordinate-contract copies from the returned text; the full
+            snapshot stays in the mapping JSON.
     """
     export = understanding_view.export_view_image_with_mapping(
         filepath=filepath,
@@ -5696,6 +5697,8 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
         snapshot_id=snapshot_id, which=which, max_dim=max_dim,
         crop_to_content=crop_to_content)
     image_blocks = _vision_image_blocks(vision_result)
+    if compact:
+        vision_result = understanding_vision.compact_vision_for_model(vision_result)
     # Lead with the export mapping, then retain the vision summary containing
     # the exact observed-image coordinate contract/source_ref template before
     # attaching the rendered image(s). The summary must not disappear merely

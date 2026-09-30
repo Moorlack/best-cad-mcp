@@ -475,3 +475,21 @@ def test_compact_export_drops_duplicated_lists_and_keeps_mapping(tmp_path, monke
     assert len(str(compact)) < len(str(export))
     assert "entity_overlay_items" in export["data"]["snapshot"]  # original untouched
     assert vg.compact_export_for_model({"ok": False}) == {"ok": False}
+
+
+def test_compact_vision_drops_repeated_contract_copies(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    db.upsert_entity("P1", "Polyline", "AcDbPolyline", layer="L", geometry={}, bbox=(0, 0, 80, 40))
+    export = export_view_image_with_mapping(filepath=write_png(tmp_path / "v.png", size=(800, 400)), database=db)
+    snapshot_id = export["data"]["snapshot"]["snapshot_id"]
+    full = vision.resolve_snapshot_images(snapshot_id, which="clean", database=db)
+    slim = vision.compact_vision_for_model(full)
+    image = slim["data"]["images"][0]
+    assert "coordinate_contract" not in image and "source_ref_templates" not in slim["data"]
+    assert image["source_ref_template"] == full["data"]["images"][0]["source_ref_template"]
+    assert slim["data"]["source_ref_template"] == full["data"]["source_ref_template"]
+    assert image["observed_to_global"] == full["data"]["images"][0]["observed_to_global"]
+    assert "coordinate_contract" in full["data"]["images"][0]  # original untouched
+    assert len(str(slim)) < len(str(full))
+    assert vision.compact_vision_for_model({"ok": False}) == {"ok": False}
