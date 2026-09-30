@@ -26,6 +26,7 @@ from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
 from .opening_swings import arc_from_geometry
+from .wall_runs import build_wall_runs
 from .wall_openings import relate_openings, validate_opening_max_width
 from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
@@ -180,7 +181,13 @@ requires human review. Candidate counts are not counts of physical elements.
                                   "geometric_area_drawing_units_squared": None,
                                   "floor_area_verified": False, "holes_checked": False}
             boundary_checks.append({"handle": handle, **boundary_check})
-            if boundary_check["status"] != "valid_simple_polygon":
+            if boundary_check["status"] == "valid_curved_contour":
+                limitations = [w for w in limitations if w != "boundary_topology_not_verified"]
+                limitations.append("floor_area_and_holes_not_verified")
+                issue("boundary_valid_curved_contour", [handle],
+                      "Bulged contour: area is exact, self-intersection was tested on a chord approximation; "
+                      "it is excluded from containment relations and its floor area and holes are unverified.")
+            elif boundary_check["status"] != "valid_simple_polygon":
                 issue("boundary_" + boundary_check["status"], [handle], boundary_check["reason"])
             else:
                 limitations = [w for w in limitations if w != "boundary_topology_not_verified"]
@@ -260,6 +267,10 @@ requires human review. Candidate counts are not counts of physical elements.
         openings = relate_openings(candidates, wall_segments["segments"], wall_opening_max_width, identity,
                                    arcs=swing_arcs)
         wall_segments["openings"] = openings
+        # Opening-gap search links collinear segments beyond the (width-based) junction tolerance.
+        wall_segments["runs"] = build_wall_runs(wall_segments["segments"], wall_segments["junctions"]["junctions"],
+                                                gaps=openings["gaps"])
+        wall_segments["run_count"] = len(wall_segments["runs"])
         for segment in wall_segments["segments"]:
             # Geometric relation checked; the opening itself stays unverified.
             segment["openings_checked"] = True

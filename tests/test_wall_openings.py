@@ -278,3 +278,19 @@ def test_segment_candidates_expose_runs_field():
     from src.cad_understanding.wall_pairs import build_wall_segment_candidates
 
     assert build_wall_segment_candidates([], None).get("runs") is None  # not requested
+
+
+def test_wall_runs_can_be_linked_by_opening_gaps_beyond_junction_tolerance():
+    from src.cad_understanding.wall_runs import build_wall_runs
+
+    segments = [_segment("A", (0, 0, 0), (100, 0, 0)), _segment("B", (136, 0, 0), (236, 0, 0)),
+                _segment("C", (300, 0, 0), (400, 0, 0))]
+    assert build_wall_runs(segments, []) == []
+    gaps = [{"segment_ids": ["A", "B"], "gap_length": 36}, {"segment_ids": ["B", "C"], "gap_length": 64}]
+    (run,) = build_wall_runs(segments, [], gaps=gaps)
+    assert run["segment_ids"] == ["A", "B", "C"] and run["gap_count"] == 2
+    assert run["gap_length_total"] == pytest.approx(100)
+    # A gap already reported as a junction is not double counted.
+    known = [{"kind": "collinear_gap", "segment_ids": ["A", "B"], "gap_length": 36}]
+    (again,) = build_wall_runs(segments, known, gaps=gaps)
+    assert again["gap_count"] == 2

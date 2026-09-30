@@ -30,10 +30,18 @@ def _components(ids, links):
     return [sorted(members) for members in groups.values()]
 
 
-def build_wall_runs(segments, junctions):
-    """Runs of two or more collinear segments; single segments are not repeated as runs."""
+def build_wall_runs(segments, junctions, gaps=None):
+    """Runs of two or more collinear segments; single segments are not repeated as runs.
+
+    gaps: optional opening-gap records ({segment_ids, gap_length}) found with an explicit maximum
+    width; they link segments like a collinear_gap junction.
+    """
     by_id = {s["id"]: s for s in segments}
     links, link_junctions = [], []
+    known = {frozenset(j.get("segment_ids", [])) for j in junctions if j.get("kind") == "collinear_gap"}
+    junctions = list(junctions) + [
+        {"kind": "collinear_gap", "segment_ids": list(g["segment_ids"]), "gap_length": g.get("gap_length")}
+        for g in (gaps or []) if frozenset(g.get("segment_ids", [])) not in known]
     for junction in junctions:
         if junction.get("kind") in LINK_KINDS and all(i in by_id for i in junction.get("segment_ids", [])):
             links.append(tuple(junction["segment_ids"]))

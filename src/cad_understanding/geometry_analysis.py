@@ -123,7 +123,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
               'boundary_checks': boundaries, 'boundary_relations': relations,
               'block_annotations': summarize_block_attributes(selected),
               'limitations': ['Geometry evidence only; no domain classification or automatic repair.',
-                              'Horizontal LINE and straight horizontal WCS contours only; inspect exclusions.',
+                              'Horizontal LINE and horizontal WCS contours (straight or bulged) only; inspect exclusions.',
                               'Declared units do not verify scale. Snapshot freshness must be established by a scan.']}
     if parallel_separation_range is not None:
         result['parallel_line_pairs'] = find_parallel_pairs(
