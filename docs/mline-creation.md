@@ -17,7 +17,7 @@ Run a fresh scan before analysis; draw operations do not refresh the scan finger
 Autodesk references: [MLineScale](https://help.autodesk.com/cloudhelp/2025/ITA/AutoCAD-LT-ActiveX-Reference/files/GUID-6CFD9F11-2CE2-4011-BF88-E264AAE9D2A1.htm),
 [Justification](https://help.autodesk.com/cloudhelp/2026/ESP/AutoCAD-ActiveX-Reference/files/GUID-7D9F7368-0B08-41FD-B7B3-8B800574FAC1.htm).
 
-## Installed live test pending Repair
+## Live test plan (выполнен 2026-09-30)
 
 List processes, list instances, select TEST2 by full path, confirm get_document_info
 before any write. Never modify the working Civil 3D drawings.
@@ -26,3 +26,13 @@ scale=8, one each with top/zero/bottom, separated spatially.
 Fresh scan must report scale 8, justification 0/1/2 and two faces separated by 8.
 Compare native AutoCAD bounding boxes to predicted faces; confirm CMLSCALE and
 CMLJUST remain unchanged. Keep the test DWG unsaved and record actual handles.
+
+## Результат live-теста 2026-09-30 (установленный a1f567f, TEST2.dwg)
+
+- 8B0 top (y=2000), 8B1 zero (y=2200), 8B2 bottom (y=2400), scale=8, длина 100, слой A-WALL-TEST.
+- Scan: две грани на расстоянии 8; top → 2000/1992, zero → 2204/2196, bottom → 2408/2400.
+- После `regen` native-рамки: 1992–2000, 2196–2204, 2400–2408 (высота 8). До `regen` AutoCAD отдавал рамку
+  прежней геометрии (высота 1.0): после установки свойств через COM отображаемая геометрия MLINE не обновляется
+  сама. Данные scan и анализ корректны; для сверки с AutoCAD нужна регенерация (кандидат: Update() после свойств).
+- CMLSCALE=1 и CMLJUST=0 до и после не менялись. Неверные scale/justification отклоняются до создания объекта.
+- Клиентское описание инструмента может быть устаревшим (без новых параметров); вызов с параметрами работает.
