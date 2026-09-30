@@ -398,3 +398,31 @@ def test_crop_skipped_for_uniform_image_and_default_off(tmp_path):
     prep = vision.prepare_model_image(src)
     assert not prep["crop"]["applied"]
     assert prep["observed_to_source"] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+
+def _export_with_fingerprint(tmp_path, monkeypatch, live_count):
+    from src.cad_understanding import snapshot_freshness
+
+    monkeypatch.chdir(tmp_path)
+    db = make_db(tmp_path)
+    db.upsert_entity("P1", "Polyline", "AcDbPolyline", layer="L", geometry={}, bbox=(0, 0, 80, 40))
+    db.set_scan_fingerprint({"name": "vision.dwg", "path": str(tmp_path / "vision.dwg"),
+                             "model_space_count": 1, "last_entity_handle": "P1"})
+    monkeypatch.setattr(snapshot_freshness, "live_document_fingerprint", lambda: {
+        "name": "vision.dwg", "path": str(tmp_path / "vision.dwg"),
+        "model_space_count": live_count, "last_entity_handle": "P1"})
+    view_png = write_png(tmp_path / "view.png", size=(800, 400))
+    return export_view_image_with_mapping(filepath=view_png, database=db)["data"]["snapshot"]
+
+
+def test_snapshot_flags_stale_scan_cache(tmp_path, monkeypatch):
+    snapshot = _export_with_fingerprint(tmp_path, monkeypatch, live_count=27)
+    assert snapshot["cache_freshness"]["status"] == "stale"
+    assert snapshot["transform_confidence"] == "low"
+    assert any("scan cache is stale" in item.lower() for item in snapshot["limitations"])
+
+
+def test_snapshot_keeps_confidence_for_consistent_cache(tmp_path, monkeypatch):
+    snapshot = _export_with_fingerprint(tmp_path, monkeypatch, live_count=1)
+    assert snapshot["cache_freshness"]["status"] == "consistent_with_scan"
+    assert snapshot["transform_confidence"] == "normal"

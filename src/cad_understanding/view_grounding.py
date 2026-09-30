@@ -1506,6 +1506,18 @@ def _visible_entity_bboxes(database: CADDatabase,
     return visible, screen_bboxes
 
 
+def _cache_freshness(database: CADDatabase, has_cache: bool) -> Optional[Dict[str, Any]]:
+    """Scan-cache freshness versus the live drawing; None when there is no cache to judge."""
+    if not has_cache:
+        return None
+    try:
+        from .snapshot_freshness import check_snapshot_freshness
+
+        return check_snapshot_freshness(database)
+    except Exception:
+        return None
+
+
 def _scanned_entity_extent(database: CADDatabase) -> Optional[BBox]:
     return bbox_union(bbox_from_row(entity) for entity in all_entities(database))
 
@@ -1791,6 +1803,18 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         )
         warnings.extend(tile_index.get("warnings", []))
 
+    cache_freshness = _cache_freshness(db, bool(visible_handles or scanned_extent))
+    view_limitations = list(transform["limitations"])
+    if cache_freshness and cache_freshness.get("status") == "stale":
+        # The mapping extent and overlay items come from the scan cache while the
+        # WMF contains the live model space; a stale cache skews pixel<->world.
+        stale_note = (
+            "Scan cache is stale (" + str(cache_freshness.get("reason")) + "): pixel/world mapping and overlay items "
+            "may not match the rendered image. Run scan_all_entities, then render again."
+        )
+        warnings.append(stale_note)
+        view_limitations.append(stale_note)
+
     snapshot = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "grounding_geometry_version": GROUNDING_GEOMETRY_VERSION,
@@ -1802,7 +1826,11 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         "vlm_blocked_reason": vlm_blocked_reason,
         "vlm_image_path": str(raster_path) if vlm_ready else "",
         "image_size_source": image_size_source,
-        "transform_confidence": "low" if image_size_source.startswith("estimated") or image_size_source == "default_fallback" else "normal",
+        "transform_confidence": "low" if (
+            image_size_source.startswith("estimated") or image_size_source == "default_fallback"
+            or (cache_freshness or {}).get("status") == "stale"
+        ) else "normal",
+        "cache_freshness": cache_freshness,
         "overlay_image_path": overlay_path,
         "overlay_vlm_ready": overlay_vlm_ready,
         "context_json_path": "",
@@ -1825,7 +1853,7 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
         "pixel_to_world": transform["pixel_to_world"],
         "transform_chain": transform["transform_chain"],
         "confidence": transform["confidence"],
-        "limitations": transform["limitations"],
+        "limitations": view_limitations,
         "mapping_view_source": mapping_view_source,
         "scanned_entity_extent": bbox_dict(scanned_extent),
         "visible_handles": visible_handles,

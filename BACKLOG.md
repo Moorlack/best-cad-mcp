@@ -262,6 +262,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 merge upstream/master (LokmenoWer, v1.7.2: import_dxf и др.) в fork master, 6bd2b96; behind 0. Не установлено/не live-проверено (import_dxf новый). Повторять: `git fetch upstream && git merge upstream/master`.
 
+- [x] 2026-09-30 (Claude, checkout, НЕ установлено/НЕ live-проверено): причина расхождения mapping и картинки в render_drawing_view — WMF экспортирует ВЕСЬ живой model space, а extent/overlay берутся из кэша скана; в live-тесте кэш остался от прошлой сессии (4 лишние сущности MLINE/дверь на x≈15000–16100, которых в перезагруженном TEST2 нет) → ≈2× сдвиг. Исправление: `export_view_image_with_mapping` сверяет кэш с живым отпечатком (snapshot_freshness); при `stale` snapshot получает `cache_freshness`, `transform_confidence=low`, предупреждение «Scan cache is stale… run scan_all_entities». Автоматический rescan не делается (он стирает кэш). 745 тестов (+2), ruff PASS. Проверка вживую: render при устаревшем кэше → low+warning; после scan_all_entities → normal и pixel_bbox совпадают с картинкой. Осталось: ограничить размер ответа render_drawing_view (overlay_items дублируются тремя списками).
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
