@@ -25,6 +25,7 @@ from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
+from .opening_swings import arc_from_geometry
 from .wall_openings import relate_openings, validate_opening_max_width
 from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
@@ -149,6 +150,12 @@ requires human review. Candidate counts are not counts of physical elements.
     blocks = drawing_ir.get("sections", {}).get("blocks", {}).get("items", [])
     if any(block.get("is_xref") for block in blocks):
         issue("xref_contents_unverified", [], "Referenced drawings may contain additional architecture.")
+        xref_names = {str(block.get("name") or "") for block in blocks if block.get("is_xref")}
+        xref_references = sorted(str(e.get("handle") or "") for e in entities
+                                 if str((e.get("geometry") or {}).get("block_name") or "") in xref_names)
+        if xref_references:
+            issue("xref_reference_not_expanded", xref_references,
+                  "These references insert external drawings; their content is not read or classified.")
 
     handle_counts = Counter(str(e.get("handle") or "") for e in entities)
     for entity in sorted(entities, key=lambda e: str(e.get("handle") or "")):
@@ -244,7 +251,14 @@ requires human review. Candidate counts are not counts of physical elements.
     wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated,
                                                   wall_junction_tolerance)
     if wall_segments["requested"]:
-        openings = relate_openings(candidates, wall_segments["segments"], wall_opening_max_width, identity)
+        swing_arcs = []
+        for entity in entities:
+            if "arc" in {str(entity.get(k) or "").lower().removeprefix("acdb") for k in ("object_name", "entity_type")}:
+                arc = arc_from_geometry(entity.get("geometry") or {})
+                if arc is not None and entity.get("handle"):
+                    swing_arcs.append((str(entity["handle"]), arc))
+        openings = relate_openings(candidates, wall_segments["segments"], wall_opening_max_width, identity,
+                                   arcs=swing_arcs)
         wall_segments["openings"] = openings
         for segment in wall_segments["segments"]:
             # Geometric relation checked; the opening itself stays unverified.
@@ -310,7 +324,8 @@ requires human review. Candidate counts are not counts of physical elements.
             "Rule-based naming and primitive geometry only; confidence is not a probability.",
             "Candidates represent source entities, not grouped physical walls or complete building elements.",
             "Wall faces are paired and openings related to them only when wall_thickness_range is supplied; opening sizes/types, floor assignment and block/xref traversal are not determined.",
-            "Single straight horizontal contours can have geometric area; floor areas, holes and curved contours remain unverified.",
+            "Single horizontal contours (straight or bulged) can have geometric area; bulged contours are flagged valid_curved_contour (exact area, approximate self-intersection test) and are not used for containment relations; floor areas and holes remain unverified.",
+            "Only model space is scanned; paper-space layouts and xref contents are not read, and stories/levels are not inferred.",
             "No exterior/interior or load-bearing classification, code checks, or member sizing.",
         ],
     }

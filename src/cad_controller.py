@@ -3790,6 +3790,47 @@ class CADController:
         except Exception:
             return None
 
+    BLOCK_DEFINITION_LIMIT = 100
+    BLOCK_DEFINITION_ENTITY_LIMIT = 200
+    BLOCK_DEFINITION_ARC_LIMIT = 16
+
+    def _scan_block_definition_arcs(self, document, block_name, cache):
+        """Arcs of a block definition in block coordinates (door swings), read once per block.
+
+        Nothing is exploded or copied; nested blocks, xrefs and layouts are not traversed.
+        Returns None when the definition cannot be read.
+        """
+        if not block_name:
+            return None
+        if block_name in cache:
+            return cache[block_name]
+        if len(cache) >= self.BLOCK_DEFINITION_LIMIT:
+            return None
+        result = None
+        try:
+            definition = document.Blocks.Item(block_name)
+            if not (com_get(definition, "IsXRef", False) or com_get(definition, "IsLayout", False)):
+                total = int(com_get(definition, "Count", 0) or 0)
+                scanned = min(total, self.BLOCK_DEFINITION_ENTITY_LIMIT)
+                arcs = []
+                for index in range(scanned):
+                    entity = definition.Item(index)
+                    if com_get(entity, "ObjectName", "") != "AcDbArc":
+                        continue
+                    arc = {key: self._scan_point(com_get(entity, prop, None))
+                           for key, prop in (("center", "Center"), ("start", "StartPoint"),
+                                             ("end", "EndPoint"), ("normal", "Normal"))}
+                    if arc["center"] and arc["start"] and arc["end"]:
+                        arcs.append({k: v for k, v in arc.items() if v})
+                        if len(arcs) >= self.BLOCK_DEFINITION_ARC_LIMIT:
+                            break
+                result = {"arcs": arcs, "entity_count": total, "truncated": total > scanned,
+                          "origin": self._scan_point(com_get(definition, "Origin", None))}
+        except Exception:
+            logger.debug("Could not read block definition %s", block_name, exc_info=True)
+        cache[block_name] = result
+        return result
+
     def _attach_mline_style_offsets(self, document, entities) -> None:
         """Give non-STANDARD MLINE records their style's element offsets.
 
@@ -3875,6 +3916,7 @@ class CADController:
         count = min(total_available, limit)
         entities = []
         type_stats = {}
+        block_definition_cache = {}
         read_common_properties = level in {DetailLevel.STANDARD, DetailLevel.FULL}
         read_geometry = level in {DetailLevel.STANDARD, DetailLevel.FULL}
 
@@ -4018,6 +4060,10 @@ class CADController:
                         # Preserve reference metadata, never explode or traverse a block.
                         from src.cad_understanding.block_attributes import capture_block_attributes
                         info["block_attributes"] = capture_block_attributes(typed_ent)
+                        definition = self._scan_block_definition_arcs(
+                            document, com_get(typed_ent, "Name", ""), block_definition_cache)
+                        if definition is not None:
+                            info["block_definition"] = definition
                         for field, prop in (("block_name", "Name"),
                                             ("effective_name", "EffectiveName")):
                             value = com_get(typed_ent, prop, None)

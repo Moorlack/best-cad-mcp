@@ -39,7 +39,7 @@ def test_invalid_contours_have_no_area(points):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("bulges", [0, 0.01, 0, 0]), ("bulges", [0, None, 0, 0]),
+    ("bulges", [0, None, 0, 0]),
     ("bulges_complete", False), ("bulges_complete", None),
     ("normal", [0, 1, 0]), ("normal", None),
     ("vertices_coordinate_system", "OCS"),
@@ -76,3 +76,32 @@ def test_report_preserves_invalid_boundary_and_exposes_handle():
     assert result["boundary_checks"][0]["status"] == "invalid"
     assert result["candidates"][0]["boundary_check"]["status"] == "invalid"
     assert not result["structural_design_ready"]
+
+
+def _curved(points, bulges, normal=(0, 0, 1)):
+    geometry = contour(points)
+    geometry["bulges"], geometry["normal"] = bulges, list(normal)
+    return geometry
+
+
+def test_curved_contour_area_is_exact_and_status_is_distinct():
+    import math
+
+    outward = check_boundary(_curved([[0, 0], [2, 0], [2, 2], [0, 2]], [1, 0, 0, 0]))
+    assert outward["status"] == "valid_curved_contour" and outward["curved_segments"] == 1
+    assert outward["geometric_area_drawing_units_squared"] == pytest.approx(4 + math.pi / 2)
+    inward = check_boundary(_curved([[0, 0], [2, 0], [2, 2], [0, 2]], [-1, 0, 0, 0]))
+    assert inward["geometric_area_drawing_units_squared"] == pytest.approx(4 - math.pi / 2)
+    # Orientation does not change the area.
+    reverse = check_boundary(_curved([[0, 2], [2, 2], [2, 0], [0, 0]], [0, 0, -1, 0]))
+    assert reverse["geometric_area_drawing_units_squared"] == pytest.approx(4 + math.pi / 2)
+    assert "approximation" in outward["curve_check"]
+
+
+def test_curved_contour_rejects_arc_crossing_another_edge_and_bad_inputs():
+    crossing = check_boundary(_curved([[0, 0], [2, 0], [2, 0.2], [0, 0.2]], [-1, 0, 0, 0]))
+    assert crossing["status"] == "invalid" and crossing["reason"] == "self_intersection_or_touch"
+    assert crossing["geometric_area_drawing_units_squared"] is None
+    assert check_boundary(_curved([[0, 0], [2, 0], [2, 2], [0, 2]], [1e9, 0, 0, 0]))["reason"] == "curve_data_incomplete"
+    flipped = check_boundary(_curved([[0, 0], [2, 0], [2, 2], [0, 2]], [1, 0, 0, 0], normal=(0, 0, -1)))
+    assert flipped["status"] == "not_verified" and flipped["reason"] == "curved_segments_unsupported"

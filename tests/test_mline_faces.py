@@ -250,3 +250,56 @@ def test_scan_style_offsets_are_skipped_safely(monkeypatch):
     document = _FakeExportDocument(DXF_STYLES)
     controller._attach_mline_style_offsets(document, only_standard)
     assert document.exported == []
+
+
+class _FakeEntity:
+    def __init__(self, name, **props):
+        self.ObjectName = name
+        for key, value in props.items():
+            setattr(self, key, value)
+
+
+class _FakeDefinition:
+    def __init__(self, entities, **props):
+        self.entities, self.Count = entities, len(entities)
+        for key, value in props.items():
+            setattr(self, key, value)
+
+    def Item(self, index):
+        return self.entities[index]
+
+
+class _FakeBlocks:
+    def __init__(self, definitions):
+        self.definitions, self.asked = definitions, []
+
+    def Item(self, name):
+        self.asked.append(name)
+        return self.definitions[name]
+
+
+def test_block_definition_arcs_are_read_once_per_block_and_bounded():
+    from src import cad_controller
+
+    controller = cad_controller.CADController.__new__(cad_controller.CADController)
+    arc = _FakeEntity("AcDbArc", Center=(0.0, 0.0, 0.0), StartPoint=(36.0, 0.0, 0.0),
+                      EndPoint=(0.0, 36.0, 0.0), Normal=(0.0, 0.0, 1.0))
+    definitions = {
+        "DOOR": _FakeDefinition([_FakeEntity("AcDbLine"), arc], Origin=(1.0, 2.0, 0.0), IsXRef=False, IsLayout=False),
+        "XREF": _FakeDefinition([arc], IsXRef=True, IsLayout=False),
+    }
+    document = type("Doc", (), {})()
+    document.Blocks = _FakeBlocks(definitions)
+    cache = {}
+    first = controller._scan_block_definition_arcs(document, "DOOR", cache)
+    assert first["arcs"] == [{"center": [0.0, 0.0, 0.0], "start": [36.0, 0.0, 0.0],
+                              "end": [0.0, 36.0, 0.0], "normal": [0.0, 0.0, 1.0]}]
+    assert first["origin"] == [1.0, 2.0, 0.0] and first["entity_count"] == 2 and first["truncated"] is False
+    assert controller._scan_block_definition_arcs(document, "DOOR", cache) is first
+    assert document.Blocks.asked == ["DOOR"]  # second call served from the cache
+    assert controller._scan_block_definition_arcs(document, "XREF", cache) is None  # xrefs are not traversed
+    assert controller._scan_block_definition_arcs(document, "MISSING", cache) is None
+    assert controller._scan_block_definition_arcs(document, "", cache) is None
+    many = _FakeDefinition([arc] * 40, Origin=(0.0, 0.0, 0.0), IsXRef=False, IsLayout=False)
+    document.Blocks.definitions["MANY"] = many
+    assert len(controller._scan_block_definition_arcs(document, "MANY", {})["arcs"]) == controller.BLOCK_DEFINITION_ARC_LIMIT

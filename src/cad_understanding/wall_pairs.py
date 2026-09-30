@@ -2,6 +2,7 @@
 from .axis_junctions import find_axis_junctions, validate_junction_tolerance
 from .line_pairs import find_parallel_pairs, validate_separation_range
 from .wall_lines import select_wall_faces
+from .wall_runs import build_wall_runs
 
 
 def validate_wall_thickness_range(value):
@@ -41,7 +42,9 @@ def build_wall_segment_candidates(candidates, thickness_range, entity_coverage_t
         junction["segment_ids"] = junction.pop("ids")
     junctions["interpretation"] = ("Corners, T-junctions, crossings and collinear gaps between wall segment axes; "
                                    "a gap is not confirmed as an opening and no segment is trimmed or merged.")
+    runs = build_wall_runs(segments, junctions["junctions"])
     result.update({"segments": segments, "segment_count": len(segments), "junctions": junctions,
+                   "runs": runs, "run_count": len(runs),
                    "physical_walls_assembled": False,
                    "interpretation": ("Parallel wall-face LINE pairs within the requested thickness range. "
                                       "Segments overlap only where both faces are drawn; junctions are candidates only; openings, "

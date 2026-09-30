@@ -4,6 +4,7 @@ import hashlib
 import math
 
 from .axis_junctions import find_axis_gaps, validate_junction_tolerance
+from .opening_swings import block_arcs_wcs, find_swings
 from .region_overlap import band_polygon, box_band_overlap
 
 OPENING_CATEGORIES = {"door", "window", "opening"}
@@ -50,7 +51,7 @@ def _block_placement(geometry, start, end, width):
     return placement
 
 
-def relate_openings(candidates, segments, max_width=None, identity="unknown"):
+def relate_openings(candidates, segments, max_width=None, identity="unknown", arcs=None):
     """Geometric relations only: a symbol in a face gap supports, but does not prove, a real opening."""
     validate_opening_max_width(max_width)
     axes = [{"id": s["id"], "start": s["axis_wcs"][0], "end": s["axis_wcs"][1],
@@ -95,6 +96,19 @@ def relate_openings(candidates, segments, max_width=None, identity="unknown"):
                     "segment", seg["id"])
         else:
             axis = None
+        swing_axis = None
+        if in_gaps:
+            swing_axis = (gap["start_wcs"], gap["end_wcs"])
+        if swing_axis is None:
+            item["swing_status"] = "not_evaluated_no_gap_width"
+        else:
+            sources = [(label, arc) for label, arc in (arcs or [])]
+            if c["shape"] == "block_reference":
+                sources += [(f"{c['handles'][0]}:block_definition", arc)
+                            for arc in block_arcs_wcs(c.get("geometry") or {})]
+            swings = find_swings(sources, *swing_axis)
+            item["swing_arcs"] = swings
+            item["swing_status"] = "swing_arc_candidate" if swings else "none_found"
         if axis and c["shape"] == "block_reference":
             placement = _block_placement(c.get("geometry") or {}, axis[0], axis[1], axis[2])
             if placement:

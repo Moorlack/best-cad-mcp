@@ -152,3 +152,129 @@ def test_non_block_openings_have_no_placement():
     r = report(wall_opening_max_width=48)
     window = next(o for o in r["wall_segment_candidates"]["openings"]["openings"] if o["handles"] == ["N1"])
     assert "block_placement" not in window and "opening_width_candidate_drawing_units" not in window
+
+
+def _swing_arc(center, start, end, normal=(0, 0, 1)):
+    return {"center": list(center), "start": list(start), "end": list(end), "normal": list(normal)}
+
+
+def test_arc_from_geometry_and_swing_match_for_a_quarter_circle():
+    import math
+
+    from src.cad_understanding.opening_swings import arc_from_geometry, find_swings
+
+    arc = arc_from_geometry(_swing_arc((0, 0, 0), (36, 0, 0), (0, 36, 0)))
+    assert arc["radius"] == pytest.approx(36) and math.degrees(arc["sweep"]) == pytest.approx(90)
+    swings = find_swings([("A1", arc)], (0, 0), (36, 0))
+    assert len(swings) == 1 and swings[0]["hinge_end"] == "start" and swings[0]["swing_side"] == "left"
+    assert swings[0]["radius_to_opening_width_ratio"] == pytest.approx(1.0)
+    # Mirrored plane normal flips the plan direction: same points now sweep clockwise (270 degrees).
+    flipped = arc_from_geometry(_swing_arc((0, 0, 0), (36, 0, 0), (0, 36, 0), normal=(0, 0, -1)))
+    assert math.degrees(flipped["sweep"]) == pytest.approx(270)
+    assert find_swings([("A2", flipped)], (0, 0), (36, 0)) == []  # sweep outside the door range
+    # Wrong radius or hinge far from both ends: no swing.
+    assert find_swings([("A1", arc)], (0, 0), (90, 0)) == []
+    assert find_swings([("A1", arc)], (100, 100), (136, 100)) == []
+    assert arc_from_geometry({"center": [0, 0], "start": [1, 0], "end": [0, 5]}) is None
+
+
+def test_block_definition_arcs_are_placed_with_rotation_scale_and_mirror():
+    import math
+
+    from src.cad_understanding.opening_swings import block_arcs_wcs
+
+    definition = {"arcs": [_swing_arc((0, 0, 0), (36, 0, 0), (0, 36, 0))], "origin": [0, 0, 0]}
+    reference = {"block_definition": definition, "insertion_point": [100, 50, 0], "rotation": math.pi / 2,
+                 "x_scale": 1.0, "y_scale": 1.0, "normal": [0, 0, 1]}
+    (arc,) = block_arcs_wcs(reference)
+    assert arc["center"] == pytest.approx((100, 50)) and arc["radius"] == pytest.approx(36)
+    # Rotated by 90 degrees the quarter circle runs from +Y to -X.
+    assert math.degrees(arc["start_angle"]) == pytest.approx(90)
+    assert math.degrees(arc["sweep"]) == pytest.approx(90)
+    scaled = block_arcs_wcs({**reference, "rotation": 0.0, "x_scale": 2.0, "y_scale": 2.0})
+    assert scaled[0]["radius"] == pytest.approx(72)
+    mirrored = block_arcs_wcs({**reference, "rotation": 0.0, "x_scale": -1.0, "y_scale": 1.0})
+    assert mirrored[0]["center"] == pytest.approx((100, 50))
+    assert math.degrees(mirrored[0]["sweep"]) == pytest.approx(90)
+    assert block_arcs_wcs({**reference, "x_scale": 2.0, "y_scale": 1.0}) == []  # non-uniform scale
+    assert block_arcs_wcs({**reference, "normal": [0, 0, -1]}) == []
+    assert block_arcs_wcs({"insertion_point": [0, 0, 0]}) == []
+
+
+def test_relate_openings_reports_swing_arc_candidates():
+    from src.cad_understanding.opening_swings import arc_from_geometry
+    from src.cad_understanding.wall_openings import relate_openings
+
+    def seg(i, a, b):
+        return {"id": i, "axis_wcs": [a, b], "thickness_drawing_units": {"min": 8, "max": 8}}
+
+    segments = [seg("S1", [0, 0, 0], [100, 0, 0]), seg("S2", [136, 0, 0], [236, 0, 0])]
+    door = {"id": "door1", "category": "door", "handles": ["D"], "shape": "closed_polyline",
+            "bbox": {"min": [100, -4], "max": [136, 4]}}
+    arc = arc_from_geometry(_swing_arc((100, 0, 0), (136, 0, 0), (100, 36, 0)))
+    report = relate_openings([door], segments, 50, "x", arcs=[("ARC1", arc)])
+    item = report["openings"][0]
+    assert item["status"] == "in_wall_gap" and item["swing_status"] == "swing_arc_candidate"
+    assert item["swing_arcs"][0]["source"] == "ARC1" and item["swing_arcs"][0]["hinge_end"] == "start"
+    none = relate_openings([door], segments, 50, "x", arcs=[])["openings"][0]
+    assert none["swing_status"] == "none_found" and none["swing_arcs"] == []
+    no_gap = relate_openings([door], segments, None, "x", arcs=[("ARC1", arc)])["openings"][0]
+    assert no_gap["swing_status"] == "not_evaluated_no_gap_width" and "swing_arcs" not in no_gap
+
+
+def test_xref_references_are_reported_without_expansion():
+    ir = {"schema_version": "cad-ir/v2", "drawing": {"path": "a.dwg", "units": "mm"},
+          "sections": {"entities": {"items": [
+              {"handle": "X1", "entity_type": "AcDbBlockReference", "layer": "A-WALL",
+               "geometry": {"block_name": "SITE_XREF", "insertion_point": [0, 0, 0]}},
+              {"handle": "B1", "entity_type": "AcDbBlockReference", "layer": "A-DOOR",
+               "geometry": {"block_name": "DOOR", "insertion_point": [1, 1, 0]}}], "total": 2},
+              "blocks": {"items": [{"name": "SITE_XREF", "is_xref": True}, {"name": "DOOR", "is_xref": False}]}}}
+    report = build_architectural_report(ir)
+    codes = {i["code"]: i for i in report["issues"]}
+    assert codes["xref_reference_not_expanded"]["handles"] == ["X1"]
+    assert "xref_contents_unverified" in codes
+    assert any("model space is scanned" in text.lower() or "Only model space" in text for text in report["limitations"])
+
+
+def _segment(seg_id, a, b, thickness=8.0):
+    return {"id": seg_id, "axis_wcs": [list(a), list(b)],
+            "thickness_drawing_units": {"min": thickness, "max": thickness, "mean": thickness}}
+
+
+def test_wall_runs_chain_collinear_segments_across_gaps_but_not_corners():
+    from src.cad_understanding.axis_junctions import find_axis_junctions
+    from src.cad_understanding.wall_runs import build_wall_runs
+
+    segments = [_segment("A", (0, 0, 0), (100, 0, 0)), _segment("B", (136, 0, 0), (236, 0, 0)),
+                _segment("C", (300, 0, 0), (400, 0, 0)), _segment("V", (236, 4, 0), (236, 104, 0))]
+    junctions = find_axis_junctions(
+        [{"id": s["id"], "start": s["axis_wcs"][0], "end": s["axis_wcs"][1], "width": 8.0} for s in segments],
+        tolerance=70)["junctions"]
+    for junction in junctions:
+        junction["segment_ids"] = junction.pop("ids")
+    runs = build_wall_runs(segments, junctions)
+    assert len(runs) == 1  # A-B-C chained by gaps; the perpendicular V joins only by a corner/T
+    run = runs[0]
+    assert run["segment_ids"] == ["A", "B", "C"] and run["gap_count"] == 2
+    assert run["span_length"] == pytest.approx(400) and run["drawn_length"] == pytest.approx(300)
+    assert run["gap_length_total"] == pytest.approx(100)
+    assert run["axis_wcs"][0] == pytest.approx([0, 0]) and run["axis_wcs"][1] == pytest.approx([400, 0])
+    assert run["physical_wall_verified"] is False and run["thickness_varies"] is False
+    assert build_wall_runs(segments[:1], []) == []
+
+
+def test_wall_runs_count_overlaps_without_double_counting_length():
+    from src.cad_understanding.wall_runs import build_wall_runs
+
+    segments = [_segment("A", (0, 0, 0), (100, 0, 0)), _segment("B", (60, 0, 0), (160, 0, 0), 12.0)]
+    junctions = [{"kind": "parallel_overlap", "segment_ids": ["A", "B"], "overlap_length": 40}]
+    (run,) = build_wall_runs(segments, junctions)
+    assert run["drawn_length"] == pytest.approx(160) and run["overlap_count"] == 1
+    assert run["thickness_varies"] is True
+
+
+def test_segment_candidates_expose_runs_field():
+    from src.cad_understanding.wall_pairs import build_wall_segment_candidates
+
+    assert build_wall_segment_candidates([], None).get("runs") is None  # not requested
