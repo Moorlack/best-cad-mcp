@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import re
 from collections import Counter
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
@@ -25,28 +24,21 @@ from .scale_references import check_scale_references, validate_references
 from .wall_lines import diagnose_wall_lines, validate_gap_tolerance
 from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
+from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
 from .opening_swings import arc_from_geometry
+from .room_loops import find_room_loops
 from .wall_runs import build_wall_runs
 from .wall_openings import relate_openings, validate_opening_max_width
 from .wall_pairs import build_wall_segment_candidates, validate_wall_thickness_range
 from .result import error_result, ok_result
 
 
-# Whole tokens avoid matching WALL in WALLPAPER or COL in COLOR.
-NAME_RULES = {
-    "wall": {"wall", "walls"},
-    "door": {"door", "doors"},
-    "window": {"window", "windows", "glaz"},
-    "opening": {"opening", "openings", "opng"},
-    "grid": {"grid", "grids", "axis", "axes"},
-    "column": {"column", "columns", "cols", "col"},
-    "slab_boundary": {"slab", "slabs", "deck"},
-    "room_boundary": {"room", "rooms"},
-}
+# Whole tokens avoid matching WALL in WALLPAPER or COL in COLOR; see name_profiles for the vocabularies.
+NAME_RULES = build_rules()
 
 
 def _tokens(value: Any) -> set[str]:
-    return set(re.findall(r"[a-z]+", str(value).lower()))
+    return name_tokens(value)
 
 
 def _point(value: Any) -> bool:
@@ -109,7 +101,7 @@ def _validate_opening_request(thickness_range, max_width):
 
 def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
                                wall_thickness_range=None, wall_junction_tolerance=None,
-                               wall_opening_max_width=None) -> dict:
+                               wall_opening_max_width=None, name_aliases=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
@@ -119,6 +111,7 @@ requires human review. Candidate counts are not counts of physical elements.
     validate_wall_thickness_range(wall_thickness_range)
     validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
     _validate_opening_request(wall_thickness_range, wall_opening_max_width)
+    rules = build_rules(name_aliases)
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
     section = drawing_ir.get("sections", {}).get("entities")
@@ -201,7 +194,7 @@ requires human review. Candidate counts are not counts of physical elements.
         if shape == "block_reference" and effective_name and effective_name != block_name:
             names["effective_name"] = str(effective_name)
         evidence_by_type = {}
-        for category, aliases in NAME_RULES.items():
+        for category, aliases in rules.items():
             evidence = [
                 {"source": source, "value": value, "matched_tokens": sorted(_tokens(value) & aliases)}
                 for source, value in names.items() if _tokens(value) & aliases
@@ -271,6 +264,9 @@ requires human review. Candidate counts are not counts of physical elements.
         wall_segments["runs"] = build_wall_runs(wall_segments["segments"], wall_segments["junctions"]["junctions"],
                                                 gaps=openings["gaps"])
         wall_segments["run_count"] = len(wall_segments["runs"])
+        wall_segments["room_loops"] = find_room_loops(
+            wall_segments["segments"], wall_segments["junctions"]["junctions"],
+            gaps=openings["gaps"], tolerance=wall_junction_tolerance)
         for segment in wall_segments["segments"]:
             # Geometric relation checked; the opening itself stays unverified.
             segment["openings_checked"] = True
@@ -349,7 +345,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   wall_gap_tolerance: Optional[float] = None,
                                   wall_thickness_range: Optional[List[float]] = None,
                                   wall_junction_tolerance: Optional[float] = None,
-                                  wall_opening_max_width: Optional[float] = None) -> Dict[str, Any]:
+                                  wall_opening_max_width: Optional[float] = None,
+                                  name_aliases: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
@@ -359,6 +356,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         validate_wall_thickness_range(wall_thickness_range)
         validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
         _validate_opening_request(wall_thickness_range, wall_opening_max_width)
+        validate_name_aliases(name_aliases)
     except ValueError as exc:
         return error_result(str(exc))
     if reference_lengths is not None:
@@ -377,7 +375,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     report = build_architectural_report(drawing_ir, wall_gap_tolerance=wall_gap_tolerance,
                                         wall_thickness_range=wall_thickness_range,
                                         wall_junction_tolerance=wall_junction_tolerance,
-                                        wall_opening_max_width=wall_opening_max_width)
+                                        wall_opening_max_width=wall_opening_max_width,
+                                        name_aliases=name_aliases)
     from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
     freshness = check_snapshot_freshness(database)
     code = apply_to_report(report, freshness)
