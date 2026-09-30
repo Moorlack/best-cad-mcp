@@ -27,7 +27,8 @@ from .wall_networks import build_wall_networks
 from .axis_junctions import validate_junction_tolerance
 from .dimension_scale import check_dimension_scale
 from .report_limits import (
-    ARCHITECTURE_LIST_PATHS, DEFAULT_MAX_LIST_ITEMS, limit_lists, validate_max_list_items)
+    ARCHITECTURE_LIST_PATHS, DEFAULT_MAX_LIST_ITEMS, DEFAULT_MAX_RESPONSE_CHARS, fit_report,
+    validate_max_list_items, validate_max_response_chars)
 from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
 from .opening_swings import arc_from_geometry
 from .room_loops import find_room_loops
@@ -362,7 +363,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   wall_junction_tolerance: Optional[float] = None,
                                   wall_opening_max_width: Optional[float] = None,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
-                                  max_list_items: Optional[int] = DEFAULT_MAX_LIST_ITEMS) -> Dict[str, Any]:
+                                  max_list_items: Optional[int] = DEFAULT_MAX_LIST_ITEMS,
+                                  max_response_chars: Optional[int] = DEFAULT_MAX_RESPONSE_CHARS) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
     if isinstance(entity_limit, bool) or not isinstance(entity_limit, int) or not 1 <= entity_limit <= 100000:
         return error_result("entity_limit must be an integer between 1 and 100000.")
@@ -374,6 +376,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         _validate_opening_request(wall_thickness_range, wall_opening_max_width)
         validate_name_aliases(name_aliases)
         validate_max_list_items(max_list_items)
+        validate_max_response_chars(max_response_chars)
     except ValueError as exc:
         return error_result(str(exc))
     if reference_lengths is not None:
@@ -416,10 +419,10 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                      "message": "Review project_context unit declarations; no conversion or scale confirmation was performed."})
     handles = sorted({handle for c in report["candidates"] for handle in c["handles"]})
     warnings = sorted({issue["code"] for issue in report["issues"]})
-    trimmed = limit_lists(report, ARCHITECTURE_LIST_PATHS, max_list_items)
+    trimmed = fit_report(report, ARCHITECTURE_LIST_PATHS, max_list_items, max_response_chars)
     if trimmed:
         warnings = sorted({*warnings, "report_lists_truncated"})
-        handles = handles[:max_list_items]
+        handles = handles[:min(max_list_items or 200, 200)]
     return ok_result(
         "Built architectural candidate inventory; engineering interpretation remains unverified.",
         data={"report": report},
