@@ -260,6 +260,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-09-30 live PASS crop_to_content (Claude, установленный `4a9086a`, один AutoCAD 2025 PID 26724 с TEST2.dwg; порядок acad.exe → list → select по полному пути → get_document_info: 27 объектов, saved=true): `render_drawing_view(crop_to_content=true, which=clean, include_overlay=false)` → 2400×1018 обрезано до 495×476, рамка [544,203,1039,679], observed_to_source = сдвиг (544,203) с масштабом 1; в обрезку попал весь видимый фасад (5 панелей + размеры), по исходному PNG рамка совпадает с содержимым. Запись в DWG не выполнялась. ОТКРЫТО (старый дефект, не от обрезки): overlay/pixel_bbox из mapping не совпадают с реальной картинкой (панель 674 по mapping x≈337, на картинке ≈592–992; mapping строится по extent всех сущностей, включая MLINE/дверь на x=15000–16100, которые на картинке не видны) — проверить map_pixel_to_world/ground_* на WMF без выделения, возможно масштаб ≈2×. Также: ответ render_drawing_view с overlay_items огромный (>25k токенов) — стоит ограничивать.
 
+- [x] 2026-09-30 merge upstream/master (LokmenoWer, v1.7.2: import_dxf и др.) в fork master, 6bd2b96; behind 0. Не установлено/не live-проверено (import_dxf новый). Повторять: `git fetch upstream && git merge upstream/master`.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
