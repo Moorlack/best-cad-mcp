@@ -53,3 +53,13 @@ def test_architectural_report_carries_dimension_scale_issue_and_result():
     codes = {i["code"]: i for i in bad["issues"]}
     assert codes["dimension_scale_mismatch"]["handles"] == ["A"]
     assert build_architectural_report(_ir([]))["dimension_scale_check"]["checked"] == 0
+
+
+def test_stored_rotation_that_does_not_match_the_measured_direction_is_tolerated():
+    # Vertical distance measured, stored rotation 0: seen on an imported drawing.
+    result = check_dimension_scale([dim("V", 1130, (0, 8033, 0), (0, 9163, 0), rotation=0.0)])
+    assert result["status"] == "agrees"
+    assert result["items"][0]["axis"] == "perpendicular_to_stored_rotation"
+    # Neither direction matches: a real difference.
+    wrong = check_dimension_scale([dim("W", 500, (0, 0, 0), (0, 1130, 0), rotation=0.0)])
+    assert wrong["status"] == "differs"

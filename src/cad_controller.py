@@ -4063,7 +4063,7 @@ class CADController:
                         measurement = com_get(typed_ent, "Measurement", None)
                         if isinstance(measurement, (int, float)) and math.isfinite(measurement):
                             info["measurement"] = float(measurement)
-                        for field, prop in (("xline1_point", "ExtLine1Point"), ("xline2_point", "ExtLine2Point")):
+                        for field, prop in (("xline1_point", "XLine1Point"), ("xline2_point", "XLine2Point")):
                             point = self._scan_point(com_get(typed_ent, prop, None))
                             if point:
                                 info[field] = point

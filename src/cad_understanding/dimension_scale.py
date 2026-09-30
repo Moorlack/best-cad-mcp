@@ -44,16 +44,23 @@ def check_dimension_scale(entities, tolerance=DEFAULT_TOLERANCE):
         if reason:
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
+        axis = "dimension_direction"
         if kind == "rotateddimension":
             angle = geometry["dimension_rotation"]
             drawn = abs((p2[0] - p1[0]) * math.cos(angle) + (p2[1] - p1[1]) * math.sin(angle))
+            # The stored rotation is not always the measured direction (seen on imported drawings):
+            # accept the perpendicular projection when the stored direction does not agree.
+            across = abs(-(p2[0] - p1[0]) * math.sin(angle) + (p2[1] - p1[1]) * math.cos(angle))
+            if drawn <= 0 or abs(measured / drawn - 1.0) > tolerance:
+                if across > 0 and (abs(measured / across - 1.0) <= tolerance or drawn <= 0):
+                    drawn, axis = across, "perpendicular_to_stored_rotation"
         else:
             drawn = math.dist(p1, p2)
         if drawn <= 0:
             skipped["zero_drawn_length"] = skipped.get("zero_drawn_length", 0) + 1
             continue
         ratio = measured / drawn
-        items.append({"handle": handle, "measured": measured, "drawn": drawn, "ratio": ratio,
+        items.append({"handle": handle, "measured": measured, "drawn": drawn, "ratio": ratio, "axis": axis,
                       "status": "agrees" if abs(ratio - 1.0) <= tolerance else "differs"})
     agree = sum(1 for i in items if i["status"] == "agrees")
     result = {"checked": len(items), "agree": agree, "differ": len(items) - agree,
