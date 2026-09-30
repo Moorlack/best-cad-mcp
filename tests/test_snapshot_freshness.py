@@ -117,3 +117,12 @@ def test_scan_without_autocad_keeps_previous_cache(tmp_path, monkeypatch):
         query_tools.scan_all_entities()
     assert (db.get_scan_fingerprint(), db.get_drawing_units(), sum(db.get_entity(h) is not None for h in ("L0", "L1"))) == before
     assert before[2] == 2
+
+
+def test_drawing_identity_path_uses_full_name_even_when_empty():
+    from src.cad_tools.file_tools import _drawing_identity_path
+
+    assert _drawing_identity_path({"full_name": "C:\\a\\b.dwg", "path": "C:\\a"}) == "C:\\a\\b.dwg"
+    # Unsaved drawing: COM reports the default folder as Path but no FullName.
+    assert _drawing_identity_path({"full_name": "", "path": "C:\\Users\\x\\Documents"}) == ""
+    assert _drawing_identity_path({"path": "legacy.dwg"}) == "legacy.dwg"

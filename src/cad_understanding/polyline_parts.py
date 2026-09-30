@@ -92,6 +92,8 @@ def split_mline(handle, geometry, base_id, layer="0"):
     vertices = geometry.get("vertices", [])
     style = str(geometry.get("mline_style") or "")
     scale, just = geometry.get("mline_scale"), geometry.get("mline_justification")
+    if "vertices" not in geometry:
+        return [], [{"handle": handle, "reason": "geometry_not_captured"}]
     if not isinstance(vertices, list) or len(vertices) < 2 or not all(_point(v) for v in vertices):
         return [], [{"handle": handle, "reason": "invalid_mline_vertices"}]
     if type(scale) not in (int, float) or not math.isfinite(scale) or just not in STANDARD_MLINE_OFFSETS:

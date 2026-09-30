@@ -7,6 +7,7 @@ instances the choice must be explicit: a pinned process id, a drawing path, or
 the only instance running. Otherwise selection fails closed.
 """
 
+import time
 import os
 
 
@@ -141,7 +142,7 @@ def describe(instances):
     return [{k: v for k, v in inst.items() if k != "app"} for inst in instances]
 
 
-def activate_document(app, document_path):
+def activate_document(app, document_path, attempts=10):
     """Make the open drawing whose FullName (or, when unsaved, Name) matches the active one.
 
     Selecting an instance by document path must also select that drawing, otherwise later
@@ -157,7 +158,12 @@ def activate_document(app, document_path):
             names = {_norm(getattr(document, "FullName", "") or ""), _norm(getattr(document, "Name", "") or "")}
             if target in names:
                 document.Activate()
-                return _norm(getattr(app.ActiveDocument, "FullName", "") or getattr(app.ActiveDocument, "Name", "")) in names
+                for _ in range(attempts):
+                    active = app.ActiveDocument
+                    if _norm(getattr(active, "FullName", "") or getattr(active, "Name", "")) in names:
+                        return True
+                    time.sleep(0.1)
+                return False
     except Exception:
         return False
     return False

@@ -211,3 +211,24 @@ def test_activate_document_matches_full_name_or_unsaved_name():
     assert activate_document(app, "C:\\Work\\Other.dwg") is False and app.ActiveDocument is b
     assert activate_document(app, "") is False
     assert activate_document(object(), "x.dwg") is False
+
+
+def test_activate_document_waits_for_delayed_active_document_update():
+    from src.autocad_instances import activate_document
+
+    target, other = _Doc("C:\Work\TEST2.dwg", "TEST2.dwg"), _Doc("", "Drawing1.dwg")
+    reads = {"n": 0}
+
+    class _LazyApp:
+        Documents = _Docs([other, target])
+
+        @property
+        def ActiveDocument(self):
+            reads["n"] += 1
+            return target if reads["n"] >= 3 else other
+
+    target.Activate = lambda: None
+    assert activate_document(_LazyApp(), "c:/work/test2.dwg") is True
+    assert reads["n"] >= 3
+    reads["n"] = 0
+    assert activate_document(_LazyApp(), "c:/work/test2.dwg", attempts=1) is False

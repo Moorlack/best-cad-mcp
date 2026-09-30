@@ -1586,6 +1586,35 @@ def _fit_raster_content_view(raster_path: Path,
     return _fit_view_to_raster_content(scanned_extent, content_box, image_width, image_height, predicted)
 
 
+def _retry_blank_export(path: Path, raster: Path, warnings: List[str]) -> Optional[Tuple[Path, str]]:
+    """Export again after ZoomExtents when a drawing with entities produced a blank image.
+
+    A new or freshly drawn document can export a WMF without display graphics until its
+    view has been regenerated (observed live on an unsaved drawing). One retry, and the
+    view change is reported.
+    """
+    try:
+        from src.cad_tools import file_tools
+
+        from .vision import detect_content_box
+
+        if detect_content_box(raster) is not None:
+            return None
+        if int(file_tools.ctrl.doc.ModelSpace.Count) <= 0:
+            return None
+        file_tools.ctrl.zoom_extents()
+        file_tools.ctrl.regen("all")
+        message = file_tools.export_view_image(str(path))
+        converted = _try_convert_wmf_to_raster(path)
+        if converted and detect_content_box(converted) is not None:
+            warnings.append("The first export was blank although the drawing has entities; the view was "
+                            "zoomed to extents and exported again.")
+            return converted, message
+    except Exception as exc:
+        warnings.append(f"Blank-export retry failed: {exc}")
+    return None
+
+
 def _scanned_entity_extent(database: CADDatabase) -> Optional[BBox]:
     return bbox_union(bbox_from_row(entity) for entity in all_entities(database))
 
@@ -1718,6 +1747,9 @@ def export_view_image_with_mapping(filepath: Optional[str] = None,
     if path.suffix.lower() == ".wmf" and path.exists():
         converted = _try_convert_wmf_to_raster(path)
         if converted:
+            retried = _retry_blank_export(path, converted, warnings)
+            if retried:
+                converted, export_message = retried
             raster_path = converted
             vlm_ready = True
         else:

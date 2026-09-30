@@ -12,12 +12,23 @@ ctrl = get_controller()
 db = get_database()
 
 
+def _drawing_identity_path(info) -> str:
+    """Path used as the cache identity: FullName, which is empty for an unsaved drawing.
+
+    scan_all_entities records FullName, so falling back to the Path property here would give an
+    unsaved drawing a second identity and hide its scan fingerprint from freshness checks.
+    """
+    if "full_name" in info:
+        return info.get("full_name") or ""
+    return info.get("path", "")
+
+
 def _sync_db_drawing_from_info(info) -> None:
     try:
         if isinstance(info, dict) and "error" not in info:
             db.activate_drawing(
                 name=info.get("name", "active"),
-                path=info.get("full_name") or info.get("path", ""),
+                path=_drawing_identity_path(info),
             )
     except Exception:
         pass

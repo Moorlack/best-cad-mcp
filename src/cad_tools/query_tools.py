@@ -8,13 +8,18 @@ ctrl = get_controller()
 db = get_database()
 
 
+def file_tools_identity(info) -> str:
+    from src.cad_tools.file_tools import _drawing_identity_path
+    return _drawing_identity_path(info)
+
+
 def _sync_db_active_drawing() -> None:
     try:
         info = ctrl.get_document_info()
         if isinstance(info, dict) and "error" not in info:
             db.activate_drawing(
                 name=info.get("name", "active"),
-                path=info.get("full_name") or info.get("path", ""),
+                path=file_tools_identity(info),
             )
     except Exception:
         pass

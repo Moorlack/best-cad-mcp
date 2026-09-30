@@ -493,3 +493,43 @@ def test_compact_vision_drops_repeated_contract_copies(tmp_path, monkeypatch):
     assert "coordinate_contract" in full["data"]["images"][0]  # original untouched
     assert len(str(slim)) < len(str(full))
     assert vision.compact_vision_for_model({"ok": False}) == {"ok": False}
+
+
+def test_blank_export_is_retried_once_after_zoom_extents(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from src.cad_tools import file_tools
+    from src.cad_understanding import view_grounding as vg
+
+    blank = write_png(tmp_path / "blank.png", size=(200, 100), color=(33, 40, 48))
+    filled = _content_png(tmp_path / "filled.png", size=(200, 100), box=(50, 30, 120, 70))
+    calls = []
+
+    class _Model:
+        Count = 3
+
+    class _Doc:
+        ModelSpace = _Model()
+
+    class _Ctrl:
+        doc = _Doc()
+
+        def zoom_extents(self):
+            calls.append("zoom")
+
+        def regen(self, mode):
+            calls.append("regen")
+
+    monkeypatch.setattr(file_tools, "ctrl", _Ctrl())
+    monkeypatch.setattr(file_tools, "export_view_image", lambda path: calls.append("export") or "re-exported")
+    monkeypatch.setattr(vg, "_try_convert_wmf_to_raster", lambda path: Path(filled))
+    warnings = []
+    converted, message = vg._retry_blank_export(Path(tmp_path / "v.wmf"), Path(blank), warnings)
+    assert converted == Path(filled) and message == "re-exported"
+    assert calls == ["zoom", "regen", "export"] and "zoomed to extents" in warnings[0]
+    # Not blank, or an empty drawing: no retry and no view change.
+    calls.clear()
+    assert vg._retry_blank_export(Path(tmp_path / "v.wmf"), Path(filled), warnings) is None
+    _Model.Count = 0
+    assert vg._retry_blank_export(Path(tmp_path / "v.wmf"), Path(blank), warnings) is None
+    assert calls == []
