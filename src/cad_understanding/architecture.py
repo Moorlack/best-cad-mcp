@@ -422,7 +422,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     trimmed = fit_report(report, ARCHITECTURE_LIST_PATHS, max_list_items, max_response_chars)
     if trimmed:
         warnings = sorted({*warnings, "report_lists_truncated"})
-        handles = handles[:min(max_list_items or 200, 200)]
+        returned = (trimmed.get("candidates") or {}).get("returned")
+        handles = handles[:returned if returned is not None else min(max_list_items or 200, 200)]
     return ok_result(
         "Built architectural candidate inventory; engineering interpretation remains unverified.",
         data={"report": report},
