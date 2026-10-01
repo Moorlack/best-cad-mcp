@@ -703,6 +703,7 @@ class CADController:
         valid = {"DWG", "DXF", "PDF", "DWF", "DGN", "FBX", "IGS", "SAT", "STL", "WMF", "BMP"}
         if format_type not in valid:
             return {"success": False, "message": f"不支持格式: {format_type}。支持: {valid}"}
+        self.last_export_notes = []
         try:
             if format_type == "BMP":
                 raise RuntimeError("BMP export through AutoCAD COM can block in this environment; use WMF instead.")
@@ -724,7 +725,9 @@ class CADController:
                 self._export_dwf(filepath)
             else:
                 self._export_with_selection_set(filepath, format_type)
-            return {"success": True, "message": f"已导出为 {format_type}: {filepath}"}
+            notes = " ".join(getattr(self, "last_export_notes", []))
+            message = f"已导出为 {format_type}: {filepath}"
+            return {"success": True, "message": message + ("\n" + notes if notes else "")}
         except Exception as e:
             return {"success": False, "message": f"导出失败: {e}"}
 
@@ -1039,7 +1042,7 @@ class CADController:
                 selection_set.AddItems(win32com.client.VARIANT(
                     pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, items
                 ))
-            with self._wmf_export_colors(format_type):
+            with self._wmf_export_colors(format_type), self._model_tab_for_export(format_type):
                 self.doc.Export(export_path, format_type, selection_set)
                 self._wait_for_export_file(filepath, format_type)
         finally:
@@ -1048,6 +1051,35 @@ class CADController:
                     selection_set.Delete()
                 except Exception:
                     pass
+
+    @contextmanager
+    def _model_tab_for_export(self, format_type: str):
+        """Export model-space entities from the Model tab, then restore the active layout.
+
+        With a layout tab active (TILEMODE=0) a WMF/BMP export of model-space entities is blank.
+        Switching tabs changes no drawing content, but AutoCAD counts it in DBMOD.
+        """
+        previous = None
+        if format_type.upper() in {"WMF", "BMP"}:
+            try:
+                if int(com_get(self.doc, "ActiveSpace", 1)) == 0:
+                    previous = self.doc.ActiveLayout
+                    self.doc.ActiveLayout = self.doc.Layouts.Item("Model")
+                    self.last_export_notes = getattr(self, "last_export_notes", [])
+                    self.last_export_notes.append(
+                        f"A layout tab ({com_get(previous, 'Name', '')}) was active; the export temporarily switched to the "
+                        "Model tab and switched back (no drawing content changed).")
+            except Exception:
+                logger.debug("Could not switch to the Model tab for export", exc_info=True)
+                previous = None
+        try:
+            yield
+        finally:
+            if previous is not None:
+                try:
+                    self.doc.ActiveLayout = previous
+                except Exception:
+                    logger.warning("Could not restore the active layout after export", exc_info=True)
 
     @contextmanager
     def _wmf_export_colors(self, format_type: str):

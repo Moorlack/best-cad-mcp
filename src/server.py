@@ -59,7 +59,9 @@ if _project_root not in sys.path:
 from mcp.server.mcpserver import Context, Image as _MCPImage, MCPServer
 from mcp.shared.exceptions import MCPError
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from typing import Optional, List, Tuple, Dict, Any, Union, get_origin
+from typing import Annotated, Optional, List, Tuple, Dict, Any, Union, get_args, get_origin
+
+from pydantic import BeforeValidator
 from typing_extensions import TypedDict
 
 def _env_int(name: str, default: int,
@@ -919,6 +921,36 @@ def _tool_enabled(tool_name: str) -> bool:
 _DISABLED_TOOL_NAMES: List[str] = []
 
 
+def _integer_to_str(value):
+    # Clients turn all-digit strings such as the handle "27128" into numbers before sending them.
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
+
+_LenientStr = Annotated[str, BeforeValidator(_integer_to_str)]
+
+
+def _lenient_annotation(annotation):
+    """str, Optional[str] and List[str] parameters also accept integers (schema stays "string")."""
+    if annotation is str:
+        return _LenientStr
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Union and str in args and all(a in (str, type(None)) for a in args):
+        return Optional[_LenientStr] if type(None) in args else _LenientStr
+    if origin in (list, List) and args == (str,):
+        return List[_LenientStr]
+    if origin is Union and type(None) in args and len(args) == 2:
+        inner = next(a for a in args if a is not type(None))
+        if get_origin(inner) in (list, List) and get_args(inner) == (str,):
+            return Optional[List[_LenientStr]]
+    return annotation
+
+
+def _lenient_signature(signature):
+    return signature.replace(parameters=[
+        parameter.replace(annotation=_lenient_annotation(parameter.annotation))
+        for parameter in signature.parameters.values()])
+
+
 def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
                    icons=None, meta=None, structured_output=None):
     def decorator(fn):
@@ -942,7 +974,7 @@ def _safe_mcp_tool(name=None, title=None, description=None, annotations=None,
             async def registered(*args, **kwargs):
                 return wrapped(*args, **kwargs)
 
-            registered.__signature__ = inspect.signature(wrapped)
+        registered.__signature__ = _lenient_signature(inspect.signature(wrapped))
 
         _raw_mcp_tool(
             name=name,

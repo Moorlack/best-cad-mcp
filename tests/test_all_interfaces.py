@@ -1720,6 +1720,7 @@ class TestToolWiring(unittest.TestCase):
             '_default_tool_description', '_project_version', '_tool_error_value',
             '_wrap_tool_errors',
             '_safe_mcp_tool', '_registered_tools', '_tool_category',
+            '_integer_to_str', '_lenient_annotation', '_lenient_signature',
             '_first_description_line', '_build_registered_tool_help',
             '_load_prompt_file', '_env_flag',
             '_env_int', '_configure_logging', '_safe_log_value',

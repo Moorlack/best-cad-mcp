@@ -85,3 +85,21 @@ def test_native_mcp_passes_the_viewport_filter():
     assert analyze.call_args.kwargs["view_filter"] == {"handle": "2710A", "layout": "Sheet", "window": [0, 0, 10, 10],
                                                        "frozen_layers": ["X"]}
     assert "No layout viewport" in str(missing["structuredContent"])
+
+
+def test_wmf_export_switches_to_the_model_tab_and_back():
+    model, sheet = SimpleNamespace(Name="Model"), SimpleNamespace(Name="Sheet")
+    doc = SimpleNamespace(ActiveSpace=0, ActiveLayout=sheet, Layouts=SimpleNamespace(Item=lambda name: model))
+    ctrl = object.__new__(CADController)
+    ctrl.doc = doc
+    seen = []
+    with ctrl._model_tab_for_export("WMF"):
+        seen.append(doc.ActiveLayout)
+    assert seen == [model] and doc.ActiveLayout is sheet and "Model tab" in ctrl.last_export_notes[0]
+    doc.ActiveSpace = 1
+    ctrl.last_export_notes = []
+    with ctrl._model_tab_for_export("WMF"):
+        assert doc.ActiveLayout is sheet
+    with ctrl._model_tab_for_export("PDF"):
+        pass
+    assert ctrl.last_export_notes == []
