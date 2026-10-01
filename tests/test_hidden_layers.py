@@ -83,7 +83,7 @@ def test_compact_render_drops_long_paths_and_respects_a_text_budget():
     big = [{"overlay_id": f"T{i}", "pixel_bbox": [0, 0, i + 1, i + 1], "note": "x" * 900} for i in range(100)]
     slim = compact_export_for_model({"ok": True, "data": {"snapshot": {"overlay_items": big}}})["data"]["snapshot"]
     import json
-    assert len(json.dumps(slim["overlay_items"])) <= 30000
+    assert len(json.dumps(slim["overlay_items"])) <= 12000
     assert slim["compact"]["truncated_overlay_lists"]["overlay_items"]["total"] == 100
 
 

@@ -3377,8 +3377,16 @@ _COMPACT_EMPTY_ITEM_KEYS = ("pixel_path", "world_path", "semantic_tags", "native
 
 
 COMPACT_MAX_OVERLAY_ITEMS = 120
-COMPACT_MAX_OVERLAY_CHARS = 30000  # per overlay list in the returned text
+COMPACT_MAX_OVERLAY_CHARS = 12000  # per overlay list in the returned (indented) text
 COMPACT_MAX_PATH_POINTS = 16
+
+
+def _round_nested(value: Any, digits: int) -> Any:
+    if isinstance(value, float):
+        return round(value, digits)
+    if isinstance(value, (list, tuple)):
+        return [_round_nested(v, digits) for v in value]
+    return value
 
 
 def _overlay_pixel_area(item: Any) -> float:
@@ -3412,6 +3420,13 @@ def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
                 # Hatch boundaries and dense polylines: the boxes locate them; the path is in the mapping JSON.
                 out.pop(path_key)
                 out[path_key + "_points"] = len(path)
+            elif isinstance(path, list):
+                out[path_key] = _round_nested(path, 1 if path_key == "pixel_path" else 3)
+        if isinstance(out.get("pixel_bbox"), list):
+            out["pixel_bbox"] = _round_nested(out["pixel_bbox"], 1)
+        box = out.get("world_bbox")
+        if isinstance(box, dict) and box.get("min") is not None:
+            out["world_bbox"] = {"min": _round_nested(box["min"], 3), "max": _round_nested(box["max"], 3)}
         return out
 
     truncated = {}
