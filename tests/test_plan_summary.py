@@ -59,7 +59,7 @@ def test_native_mcp_summarize_plan_scans_then_analyzes(scan):
     assert not result.get("isError")
     if scan:
         scan_fn.assert_called_once_with(max_entities=800, layers=None, architectural_layers_only=True,
-                                        max_seconds=30.0, fast=True)
+                                        max_seconds=30.0, fast=True, include_xrefs=False)
     else:
         scan_fn.assert_not_called()
     analyze.assert_called_once_with(entity_limit=800, wall_thickness_range="auto", wall_opening_max_width="auto",

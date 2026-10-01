@@ -176,14 +176,24 @@ requires human review. Candidate counts are not counts of physical elements.
     if not entities:
         issue("empty_snapshot", [], "No entities available; this does not prove the drawing is empty.")
     blocks = drawing_ir.get("sections", {}).get("blocks", {}).get("items", [])
+    expanded_xrefs = Counter(str((e.get("geometry") or {}).get("xref_insert_handle") or "") for e in entities
+                             if (e.get("geometry") or {}).get("xref_insert_handle"))
+    if expanded_xrefs:
+        issue("xref_contents_expanded", sorted(expanded_xrefs),
+              f"{sum(expanded_xrefs.values())} entities from {len(expanded_xrefs)} xref references were read from the "
+              "referenced files and placed in host coordinates (layers 'Xref|Layer', handles '<insert>/<handle>'); "
+              "nested xrefs inside them are not followed.")
     if any(block.get("is_xref") for block in blocks):
-        issue("xref_contents_unverified", [], "Referenced drawings may contain additional architecture.")
         xref_names = {str(block.get("name") or "") for block in blocks if block.get("is_xref")}
         xref_references = sorted(str(e.get("handle") or "") for e in entities
-                                 if str((e.get("geometry") or {}).get("block_name") or "") in xref_names)
+                                 if str((e.get("geometry") or {}).get("block_name") or "") in xref_names
+                                 and str(e.get("handle") or "") not in expanded_xrefs)
+        if xref_references or not expanded_xrefs:
+            issue("xref_contents_unverified", [], "Referenced drawings may contain additional architecture.")
         if xref_references:
             issue("xref_reference_not_expanded", xref_references,
-                  "These references insert external drawings; their content is not read or classified.")
+                  "These references insert external drawings; their content is not read or classified "
+                  "(scan with include_xrefs=true to read them).")
 
     if expanded_refs:
         issue("block_contents_expanded", sorted(expanded_refs),

@@ -4012,6 +4012,12 @@ class CADController:
             dynamic = com_get(typed_ent, "IsDynamicBlock", None)
             if isinstance(dynamic, bool):
                 info["is_dynamic_block"] = dynamic
+            if definition is None and geometry["block_name"]:
+                try:
+                    if com_get(document.Blocks.Item(geometry["block_name"]), "IsXRef", False):
+                        info["is_xref"] = True
+                except Exception:
+                    pass
         else:
             info.update(geometry)
         return info
@@ -4033,6 +4039,139 @@ class CADController:
         except Exception:
             logger.debug("Could not read layer visibility", exc_info=True)
         return states
+
+    def _xref_inserts(self, document, entities) -> List[Dict[str, Any]]:
+        """Top-level INSERTs of attached/overlaid xrefs: handle, name, resolved file and placement."""
+        definitions: Dict[str, Optional[str]] = {}
+        host_folder = os.path.dirname(str(com_get(document, "FullName", "") or ""))
+        found = []
+        for info in entities:
+            if info.get("type") != "AcDbBlockReference" or "/" in str(info.get("handle", "")):
+                continue
+            try:
+                ent = document.HandleToObject(info["handle"])
+                name = com_get(ent, "Name", "")
+                if name not in definitions:
+                    definition = document.Blocks.Item(name)
+                    path = None
+                    if com_get(definition, "IsXRef", False):
+                        raw = str(com_get(definition, "Path", "") or "")
+                        candidates = [raw] if os.path.isabs(raw) else [os.path.join(host_folder, raw)]
+                        candidates.append(os.path.join(host_folder, os.path.basename(raw)))
+                        path = next((os.path.normpath(c) for c in candidates if c and os.path.isfile(c)), "")
+                    definitions[name] = path
+                path = definitions[name]
+                if path is None:
+                    continue
+                found.append({
+                    "handle": info["handle"], "name": name, "path": path or None,
+                    "insertion_point": self._scan_point(com_get(ent, "InsertionPoint", None)) or [0.0, 0.0, 0.0],
+                    "rotation": float(com_get(ent, "Rotation", 0.0) or 0.0),
+                    "x_scale": float(com_get(ent, "XScaleFactor", 1.0) or 1.0),
+                    "y_scale": float(com_get(ent, "YScaleFactor", 1.0) or 1.0),
+                    "z_scale": float(com_get(ent, "ZScaleFactor", 1.0) or 1.0),
+                    "normal": self._scan_point(com_get(ent, "Normal", None)) or [0.0, 0.0, 1.0],
+                })
+            except Exception:
+                logger.debug("Could not inspect block reference %s", info.get("handle"), exc_info=True)
+        return found
+
+    def _scan_xref_contents(self, document, entities, budget, deadline, scan_options):
+        """(records, report) of the host's xrefs, scanned in their own files and placed into host WCS.
+
+        Each xref file is scanned once (an already open copy is reused, otherwise it is opened
+        read-only and closed again); nested xrefs inside it are not followed. The host drawing is
+        made active again afterwards.
+        """
+        from src.autocad_instances import activate_document
+        from src.xref_transform import InsertTransform, place_xref_records
+
+        inserts = self._xref_inserts(document, entities)
+        report = {"inserts": [], "files_scanned": 0, "entities_added": 0, "nested_xrefs_not_followed": 0}
+        if not inserts:
+            return [], report
+        host_path = str(com_get(document, "FullName", "") or com_get(document, "Name", ""))
+        scanned: Dict[str, Any] = {}
+        records: List[Dict[str, Any]] = []
+        try:
+            for item in inserts:
+                entry = {key: item[key] for key in ("handle", "name", "path")}
+                report["inserts"].append(entry)
+                if not item["path"]:
+                    entry["status"] = "file_not_found"
+                    continue
+                try:
+                    transform = InsertTransform(item["insertion_point"], item["rotation"], item["x_scale"],
+                                                item["y_scale"], item["z_scale"], item["normal"])
+                except ValueError as exc:
+                    entry["status"] = "unsupported_insert"
+                    entry["reason"] = str(exc)
+                    continue
+                key = os.path.normcase(item["path"])
+                if key not in scanned:
+                    remaining = budget - len(records)
+                    if remaining <= 0 or (deadline is not None and time.monotonic() > deadline):
+                        entry["status"] = "budget_exhausted"
+                        continue
+                    scanned[key] = self._scan_xref_file(item["path"], remaining, deadline, scan_options)
+                    report["files_scanned"] += 1
+                result = scanned[key]
+                if result.get("error"):
+                    entry["status"] = "scan_failed"
+                    entry["reason"] = result["error"]
+                    continue
+                own = result["entities"]
+                nested = sum(1 for r in own if r.get("type") == "AcDbBlockReference" and r.get("is_xref"))
+                report["nested_xrefs_not_followed"] += nested
+                placed = place_xref_records(own, item["name"], item["handle"], transform)[:max(0, budget - len(records))]
+                records.extend(placed)
+                entry.update(status="expanded", entities=len(placed), truncated=bool(result.get("truncated")))
+        finally:
+            if host_path:
+                activate_document(self.acad, host_path)
+            self.doc = document
+        report["entities_added"] = len(records)
+        return records, report
+
+    def _scan_xref_file(self, path, limit, deadline, scan_options):
+        """Scan one xref drawing in its own document; never saves it."""
+        opened = None
+        try:
+            target = os.path.normcase(os.path.abspath(path))
+            self._wait_quiescent(timeout=5.0)  # a just-closed xref document can keep AutoCAD busy
+
+            def find_open():
+                documents = self.acad.Documents
+                for index in range(int(documents.Count)):
+                    candidate = documents.Item(index)
+                    if os.path.normcase(str(com_get(candidate, "FullName", "") or "")) == target:
+                        return candidate
+                return None
+
+            existing = self._retry_com_call(find_open)
+            if existing is not None:
+                self._retry_com_call(existing.Activate)
+            else:
+                old_vars = self._set_file_dialog_vars(0)
+                try:
+                    opened = self._retry_com_call(lambda: self.acad.Documents.Open(path, True))  # read-only
+                finally:
+                    self._restore_vars(old_vars)
+            seconds = None if deadline is None else max(1.0, deadline - time.monotonic())
+            result = self.scan_model_space(max_entities=limit, max_seconds=seconds, fast=True, **scan_options)
+            if result.get("success") is False:
+                return {"error": str(result.get("message") or "scan failed"), "entities": []}
+            return result
+        except Exception as exc:
+            logger.warning("Could not scan xref %s: %s", path, exc)
+            return {"error": str(exc), "entities": []}
+        finally:
+            if opened is not None:
+                try:
+                    self._retry_com_call(lambda: opened.Close(False))
+                    self._wait_quiescent(timeout=5.0)
+                except Exception:
+                    logger.debug("Could not close xref document %s", path, exc_info=True)
 
     def _architectural_layer_names(self, document) -> List[str]:
         """Layers whose names contain a known architectural word (see name_profiles)."""
@@ -4092,8 +4231,12 @@ class CADController:
                          layers: Optional[List[str]] = None,
                          architectural_layers_only: bool = False,
                          max_seconds: Optional[float] = None,
-                         fast: bool = False) -> Dict[str, Any]:
+                         fast: bool = False,
+                         include_xrefs: bool = False) -> Dict[str, Any]:
         """Scan model space with a large-drawing friendly default.
+
+        include_xrefs: also scan the files of top-level xrefs (read-only, in AutoCAD) and add their
+        entities in host coordinates with "Xref|Layer" names and "<insert>/<handle>" handles.
 
         minimal: handle/type/layer, optionally bbox. Set capture_visual_geometry
         to retain boundary paths without enabling every standard property.
@@ -4353,6 +4496,12 @@ class CADController:
                             value = com_get(typed_ent, prop, None)
                             if isinstance(value, bool):
                                 info[field] = value
+                        if definition is None and info.get("block_name"):
+                            try:
+                                if com_get(document.Blocks.Item(info["block_name"]), "IsXRef", False):
+                                    info["is_xref"] = True
+                            except Exception:
+                                pass
                     elif obj_name in ("AcDbText", "AcDbMText"):
                         info["text"] = com_get(typed_ent, "TextString", "")
                     elif "Polyline" in obj_name:
@@ -4420,6 +4569,16 @@ class CADController:
         self._attach_mline_style_offsets(document, entities)
         if fast_entities:
             entities = fast_entities + entities
+        own_count = len(entities)
+        xref_report = None
+        if include_xrefs and not timed_out:
+            xref_records, xref_report = self._scan_xref_contents(
+                document, entities, max(0, limit - len(entities)) if max_entities is not None else 100000,
+                deadline, {"detail_level": level, "include_bounding_boxes": include_bounding_boxes,
+                           "capture_visual_geometry": capture_visual_geometry})
+            for record in xref_records:
+                type_stats[record["type"]] = type_stats.get(record["type"], 0) + 1
+            entities = entities + xref_records
         hidden_layers = self._hidden_layer_states(document)
         hidden_count = 0
         if hidden_layers:
@@ -4430,9 +4589,10 @@ class CADController:
                     hidden_count += 1
         return {
             "hidden_layer_entities": hidden_count,
+            "xrefs": xref_report,
             "hidden_layers": dict(sorted(hidden_layers.items())) or None,
             "scan_source": ("dxf_export+com" if fast_entities else "com") if fast else "com",
-            "fast_scan": ({"from_dxf": len(fast_entities), "from_com": len(entities) - len(fast_entities),
+            "fast_scan": ({"from_dxf": len(fast_entities), "from_com": own_count - len(fast_entities),
                            "hybrid_dxf_plus_com": hybrid_count, "error": fast_error} if fast else None),
             "entities": entities,
             "total": len(entities),
@@ -4441,7 +4601,7 @@ class CADController:
             "units_metadata": scan_units,
             "scan_fingerprint": scan_fingerprint,
             "scanned": len(entities),
-            "truncated": len(entities) < total_available,
+            "truncated": own_count < total_available,
             "time_budget_exceeded": timed_out,
             "layer_filter": layer_patterns or None,
             "detail_level": level,

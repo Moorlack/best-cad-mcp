@@ -64,7 +64,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       layers: Optional[List[str]] = None,
                       architectural_layers_only: bool = False,
                       max_seconds: Optional[float] = 30.0,
-                      fast: bool = True) -> str:
+                      fast: bool = True,
+                      include_xrefs: bool = False) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -80,7 +81,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     result = ctrl.scan_model_space(
         max_entities,
         layers=layers, architectural_layers_only=architectural_layers_only, max_seconds=max_seconds,
-        fast=fast,
+        fast=fast, include_xrefs=include_xrefs,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         capture_visual_geometry=capture_visual_geometry,
@@ -147,6 +148,18 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                         if info.get("hybrid_dxf_plus_com") else "")
                      + (f" (DXF export failed: {info['error']}; everything was read over COM)" if info.get("error") else "")
                      + ".")
+    xrefs = result.get("xrefs")
+    if xrefs and xrefs.get("inserts"):
+        done = [i for i in xrefs["inserts"] if i.get("status") == "expanded"]
+        lines.append(f"Xrefs: {len(done)}/{len(xrefs['inserts'])} references expanded from {xrefs['files_scanned']} files, "
+                     f"{xrefs['entities_added']} entities added in host coordinates"
+                     + "".join(f"; {i['name']}: {i.get('status')}{' (' + i['reason'] + ')' if i.get('reason') else ''}"
+                               for i in xrefs["inserts"] if i.get("status") != "expanded")
+                     + (f"; {xrefs['nested_xrefs_not_followed']} nested xrefs not followed"
+                        if xrefs.get("nested_xrefs_not_followed") else "") + ".")
+    elif any(e.get("is_xref") for e in result.get("entities", [])):
+        lines.append("Model space references xrefs whose contents were not read; pass include_xrefs=true "
+                     "(opens the referenced files read-only in AutoCAD and closes them again).")
     if result.get("hidden_layer_entities"):
         lines.append(f"{result['hidden_layer_entities']} entities lie on frozen or off layers (layer_state); "
                      "analysis and view mapping skip them unless include_hidden_layers is set.")

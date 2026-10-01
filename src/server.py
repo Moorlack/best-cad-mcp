@@ -2964,7 +2964,8 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
                       layers: Optional[List[str]] = None,
                       architectural_layers_only: bool = False,
                       max_seconds: Optional[float] = 30.0,
-                      fast: bool = True) -> str:
+                      fast: bool = True,
+                      include_xrefs: bool = False) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2994,6 +2995,10 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
             content; any export failure falls back to reading everything over COM. Blocks, MLINEs, texts,
             hatches and dimensions take their fields from the same export and use COM only for bounding
             boxes, effective block names, constant attributes and block definitions (~3-4x faster).
+        include_xrefs: Also read the files of top-level xrefs (opened read-only in AutoCAD, or an
+            already open copy, and closed again) and add their entities in host coordinates, with
+            "Xref|Layer" layer names and "<insert handle>/<handle>" handles. Nested xrefs are not
+            followed; mirrored or non-uniformly scaled xref inserts are reported, not approximated.
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,
@@ -3009,6 +3014,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         architectural_layers_only=architectural_layers_only,
         max_seconds=max_seconds,
         fast=fast,
+        include_xrefs=include_xrefs,
     )
 
 
@@ -5359,7 +5365,8 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
                                  wall_thickness_range: Optional[Union[List[float], str]] = "auto",
                                  wall_opening_max_width: Optional[Union[float, str]] = "auto",
                                  name_aliases: Optional[Dict[str, List[str]]] = None,
-                                 include_hidden_layers: bool = False) -> Dict[str, Any]:
+                                 include_hidden_layers: bool = False,
+                                 include_xrefs: bool = False) -> Dict[str, Any]:
     """One call: (re)scan the active drawing, analyze it as an architectural plan and return a short summary.
 
     scan=true runs scan_all_entities(fast, layers / architectural_layers_only, max_entities,
@@ -5368,6 +5375,7 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     plan_summary is returned: scanned scope and freshness, wall segments/axis length/thickness, openings
     and wall gaps, enclosed loops with net areas, main issue counts and a plain-text digest. Never
     changes or saves the DWG. Entities on frozen/off layers are skipped unless include_hidden_layers=true.
+    include_xrefs=true also reads the xref files (see scan_all_entities); sheets often hold the plan only in xrefs.
     Call analyze_architectural_drawing for handles and evidence. All numbers
     are geometric candidates in drawing units, not a verified takeoff.
     """
@@ -5375,7 +5383,7 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     if scan:
         scan_message = query_tools.scan_all_entities(
             max_entities=max_entities, layers=layers, architectural_layers_only=architectural_layers_only,
-            max_seconds=max_seconds, fast=True)
+            max_seconds=max_seconds, fast=True, include_xrefs=include_xrefs)
     result = understanding_architecture.analyze_architectural_drawing(
         entity_limit=max(1, min(max_entities, 100000)), wall_thickness_range=wall_thickness_range,
         wall_opening_max_width=wall_opening_max_width, name_aliases=name_aliases,
