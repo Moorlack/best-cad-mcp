@@ -36,8 +36,12 @@ MAX_ALIAS_LENGTH = 40
 
 
 def tokens(value):
-    """Lower-case letter tokens of a name; CamelCase boundaries split, yo folds to ye."""
-    text = _CAMEL.sub(" ", str(value)).casefold().replace("ё", "е")
+    """Lower-case letter tokens of a name; CamelCase boundaries split, yo folds to ye.
+
+    Xref-dependent names ("Wall Base|2_Arch_Plan_Text") use only the part after the last "|": the
+    xref's file name says nothing about what a layer or block inside it holds.
+    """
+    text = _CAMEL.sub(" ", str(value).rsplit("|", 1)[-1]).casefold().replace("ё", "е")
     return set(_SPLIT.findall(text))
 
 

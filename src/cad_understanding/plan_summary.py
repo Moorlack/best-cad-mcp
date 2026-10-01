@@ -37,7 +37,8 @@ def build_plan_summary(report):
                     "entities_scanned": (report.get("coverage") or {}).get("scanned_entities"),
                     "freshness": source.get("freshness"),
                     "scan_layer_filter": (source.get("scan_scope") or {}).get("layer_filter"),
-                    "hidden_layer_entities_skipped": (report.get("coverage") or {}).get("hidden_layer_entities_skipped", 0)},
+                    "hidden_layer_entities_skipped": (report.get("coverage") or {}).get("hidden_layer_entities_skipped", 0),
+                    "viewport_scope": (report.get("coverage") or {}).get("viewport_scope")},
         "walls": {"segments": (quantities.get("walls") or {}).get("segment_count", 0),
                   "total_axis_length": (quantities.get("walls") or {}).get("total_axis_length"),
                   "thickness_groups": (quantities.get("walls") or {}).get("by_thickness", [])[:8],
@@ -67,6 +68,8 @@ def build_plan_summary(report):
         + (f", scan limited to layers {', '.join(summary['drawing']['scan_layer_filter'][:5])}" if summary["drawing"]["scan_layer_filter"] else "")
         + (f", {summary['drawing']['hidden_layer_entities_skipped']} entities on frozen/off layers skipped"
            if summary["drawing"]["hidden_layer_entities_skipped"] else "")
+        + (f", as shown in viewport {summary['drawing']['viewport_scope']['handle']} of layout "
+           f"{summary['drawing']['viewport_scope']['layout']}" if summary["drawing"]["viewport_scope"] else "")
         + ".",
         f"Walls: {w['segments']} paired segments, axis length {_fmt(w['total_axis_length'])}"
         + (f", typical thickness {_fmt(estimate['peak_drawing_units'])} (estimated)" if estimate else

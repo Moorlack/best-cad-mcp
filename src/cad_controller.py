@@ -4212,6 +4212,54 @@ class CADController:
             info.update(geometry)
         return info
 
+    @require_document
+    def layout_viewports(self) -> Dict[str, Any]:
+        """Paper-space viewports of every layout: model window, twist, scale and per-viewport frozen layers."""
+        from src.cad_understanding.layer_visibility import parse_mview_xdata, viewport_window
+
+        document = self.doc
+        layouts = []
+        for index in range(int(document.Layouts.Count)):
+            layout = document.Layouts.Item(index)
+            if com_get(layout, "ModelType", False):
+                continue
+            block = layout.Block
+            viewports, first = [], True
+            for position in range(int(block.Count)):
+                entity = block.Item(position)
+                if com_get(entity, "ObjectName", "") != "AcDbViewport":
+                    continue
+                if first:
+                    first = False  # the layout's own paper-space viewport
+                    continue
+                try:
+                    vp = win32com.client.Dispatch(entity)
+                except Exception:
+                    vp = entity
+                item = {"handle": com_get(vp, "Handle", ""), "layer": com_get(vp, "Layer", "0"),
+                        "paper_center": self._scan_point(com_get(vp, "Center", None)),
+                        "paper_width": float(com_get(vp, "Width", 0.0) or 0.0),
+                        "paper_height": float(com_get(vp, "Height", 0.0) or 0.0),
+                        "custom_scale": com_get(vp, "CustomScale", None),
+                        "on": bool(com_get(vp, "ViewportOn", True)),
+                        "clipped": bool(com_get(vp, "Clipped", False))}
+                try:
+                    view = parse_mview_xdata(*vp.GetXData("ACAD"))
+                except Exception:
+                    view = None
+                if view is None:
+                    item["status"] = "view_data_not_available"
+                else:
+                    item.update(view_center=view["view_center"], view_height=view["view_height"],
+                                twist=view["twist"], frozen_layers=view["frozen_layers"],
+                                model_window=viewport_window(view, item["paper_width"], item["paper_height"]),
+                                status="ok")
+                    if item["model_window"] is None:
+                        item["status"] = "not_a_plan_view"
+                viewports.append(item)
+            layouts.append({"name": com_get(layout, "Name", ""), "viewports": viewports})
+        return {"success": True, "layouts": layouts}
+
     def _hidden_layer_states(self, document) -> Dict[str, str]:
         """{LAYER NAME (upper): "frozen" | "off"} for layers whose objects are not displayed."""
         states: Dict[str, str] = {}

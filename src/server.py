@@ -501,7 +501,7 @@ def _registration_category(name: str) -> str:
         "extract_drawing_constraints", "check_drawing_constraints",
         "get_drawing_constraints", "bind_dimension_to_geometry",
         "bind_all_dimensions", "validate_geometry", "get_validation_report",
-        "list_cad_resources", "get_cad_resource",
+        "list_cad_resources", "get_cad_resource", "list_layout_viewports",
     }:
         return "CAD understanding"
     if name in {
@@ -3782,7 +3782,7 @@ def _tool_category(name: str) -> str:
         "extract_drawing_constraints", "check_drawing_constraints",
         "get_drawing_constraints", "bind_dimension_to_geometry",
         "bind_all_dimensions", "validate_geometry", "get_validation_report",
-        "list_cad_resources", "get_cad_resource",
+        "list_cad_resources", "get_cad_resource", "list_layout_viewports",
     }:
         return "CAD understanding"
     if name in {
@@ -5348,7 +5348,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
                                   max_list_items: Optional[int] = 200,
                                   max_response_chars: Optional[int] = 60000,
-                                  include_hidden_layers: bool = False) -> Dict[str, Any]:
+                                  include_hidden_layers: bool = False,
+                                  viewport_handle: Optional[str] = None) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5381,13 +5382,32 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     If lists at 3 items still exceed max_response_chars, the largest detail sections are replaced by
     {omitted_for_size, chars} (truncated_lists.omitted_sections); plan_summary, quantity_summary and issues stay.
     Entities on frozen or off layers (other storeys, ceiling plans) are skipped unless include_hidden_layers=true.
+    viewport_handle (see list_layout_viewports) also skips layers frozen in that layout viewport and
+    entities outside the model window it shows (coverage.viewport_scope).
     """
+    view_filter, error = query_tools.viewport_filter(viewport_handle)
+    if error:
+        return error
     return understanding_architecture.analyze_architectural_drawing(
+        **({"view_filter": view_filter} if view_filter else {}),
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
         wall_gap_tolerance=wall_gap_tolerance, wall_thickness_range=wall_thickness_range,
         wall_junction_tolerance=wall_junction_tolerance, wall_opening_max_width=wall_opening_max_width,
         name_aliases=name_aliases, max_list_items=max_list_items,
         max_response_chars=max_response_chars, include_hidden_layers=include_hidden_layers)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))
+def list_layout_viewports(ctx: Context) -> Dict[str, Any]:
+    """List the viewports of every paper-space layout of the active drawing (read-only).
+
+    For each viewport: handle, paper centre/size, the model-space window it shows (plan views; a
+    superset when twisted), twist, scale and the layers frozen only in that viewport. Sheets often
+    show several storeys of one model through viewports that freeze each other's layers: pass a
+    handle as viewport_handle to analyze_architectural_drawing / summarize_architectural_plan to
+    analyse what that viewport shows. The layout's own paper-space viewport is omitted.
+    """
+    return query_tools.list_layout_viewports()
 
 
 @mcp.tool()
@@ -5400,7 +5420,8 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
                                  wall_opening_max_width: Optional[Union[float, str]] = "auto",
                                  name_aliases: Optional[Dict[str, List[str]]] = None,
                                  include_hidden_layers: bool = False,
-                                 include_xrefs: bool = False) -> Dict[str, Any]:
+                                 include_xrefs: bool = False,
+                                 viewport_handle: Optional[str] = None) -> Dict[str, Any]:
     """One call: (re)scan the active drawing, analyze it as an architectural plan and return a short summary.
 
     scan=true runs scan_all_entities(fast, layers / architectural_layers_only, max_entities,
@@ -5410,9 +5431,13 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     and wall gaps, enclosed loops with net areas, main issue counts and a plain-text digest. Never
     changes or saves the DWG. Entities on frozen/off layers are skipped unless include_hidden_layers=true.
     include_xrefs=true also reads the xref files (see scan_all_entities); sheets often hold the plan only in xrefs.
+    viewport_handle (see list_layout_viewports) limits the analysis to what that layout viewport shows.
     Call analyze_architectural_drawing for handles and evidence. All numbers
     are geometric candidates in drawing units, not a verified takeoff.
     """
+    view_filter, error = query_tools.viewport_filter(viewport_handle)
+    if error:
+        return error
     scan_message = None
     if scan:
         scan_message = query_tools.scan_all_entities(
@@ -5421,7 +5446,8 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     result = understanding_architecture.analyze_architectural_drawing(
         entity_limit=max(1, min(max_entities, 100000)), wall_thickness_range=wall_thickness_range,
         wall_opening_max_width=wall_opening_max_width, name_aliases=name_aliases,
-        max_list_items=1, max_response_chars=None, include_hidden_layers=include_hidden_layers)
+        max_list_items=1, max_response_chars=None, include_hidden_layers=include_hidden_layers,
+        **({"view_filter": view_filter} if view_filter else {}))
     return understanding_architecture.plan_summary_result(result, scan_message)
 
 

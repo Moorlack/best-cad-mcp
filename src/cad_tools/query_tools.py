@@ -349,3 +349,30 @@ def get_entity_statistics() -> str:
     for name, c in sorted(layer_stats.items(), key=lambda x: -x[1])[:15]:
         lines.append(f"  {name}: {c}")
     return "\n".join(lines)
+
+
+def list_layout_viewports() -> Dict[str, Any]:
+    """Viewports of every paper-space layout (see CADController.layout_viewports)."""
+    result = ctrl.layout_viewports()
+    if not result.get("success"):
+        return {"ok": False, "message": result.get("message") or "Could not read layout viewports."}
+    count = sum(len(layout["viewports"]) for layout in result["layouts"])
+    return {"ok": True, "message": f"{count} viewports in {len(result['layouts'])} layouts.",
+            "data": {"layouts": result["layouts"]}}
+
+
+def viewport_filter(viewport_handle: Optional[str]):
+    """(view_filter, error_result) for analysis limited to one layout viewport."""
+    if not viewport_handle:
+        return None, None
+    listing = ctrl.layout_viewports()
+    if not listing.get("success"):
+        return None, {"ok": False, "message": listing.get("message") or "Could not read layout viewports."}
+    for layout in listing["layouts"]:
+        for viewport in layout["viewports"]:
+            if str(viewport["handle"]).upper() == str(viewport_handle).upper():
+                if viewport.get("status") != "ok":
+                    return None, {"ok": False, "message": f"Viewport {viewport_handle}: {viewport.get('status')}."}
+                return {"handle": viewport["handle"], "layout": layout["name"], "window": viewport["model_window"],
+                        "frozen_layers": viewport["frozen_layers"]}, None
+    return None, {"ok": False, "message": f"No layout viewport with handle {viewport_handle}; use list_layout_viewports."}

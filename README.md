@@ -228,9 +228,9 @@ backward compatibility.
 
 | Profile | Tools | Intended use |
 | --- | ---: | --- |
-| `lean` | 125 | Smallest dependable surface for common drawing and inspection tasks |
-| `core` | 222 | Recommended default for full guarded CAD workflows |
-| `full` | 333 | Every registered tool, including specialized and legacy operations |
+| `lean` | 126 | Smallest dependable surface for common drawing and inspection tasks |
+| `core` | 223 | Recommended default for full guarded CAD workflows |
+| `full` | 334 | Every registered tool, including specialized and legacy operations |
 
 Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through

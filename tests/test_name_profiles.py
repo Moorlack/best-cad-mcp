@@ -55,3 +55,10 @@ def test_report_classifies_non_latin_layers_and_honours_custom_aliases():
     assert report["candidates"][0]["category"] == "wall"
     with pytest.raises(ValueError):
         build_architectural_report(_ir("X"), name_aliases={"bogus": ["x"]})
+
+
+
+def test_xref_prefix_does_not_classify_the_names_inside():
+    from src.cad_understanding.name_profiles import tokens
+    assert tokens("Wall Base|2_Arch_Plan_Text1") == {"arch", "plan", "text"}
+    assert "wall" in tokens("Wall Base|2_Arch_Plan_Wall")

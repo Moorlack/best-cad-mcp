@@ -31,7 +31,7 @@ from .report_limits import (
     validate_max_list_items, validate_max_response_chars)
 from .block_contents import expand_block_lines
 from .plan_clusters import find_plan_clusters
-from .layer_visibility import split_hidden
+from .layer_visibility import split_by_view, split_hidden
 from .plan_summary import build_plan_summary
 from .quantities import build_quantity_summary
 from .thickness_estimate import estimate_wall_thickness
@@ -125,7 +125,7 @@ def _validate_opening_request(thickness_range, max_width):
 def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
                                wall_thickness_range=None, wall_junction_tolerance=None,
                                wall_opening_max_width=None, name_aliases=None,
-                               include_hidden_layers=False) -> dict:
+                               include_hidden_layers=False, view_filter=None) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
@@ -144,6 +144,10 @@ requires human review. Candidate counts are not counts of physical elements.
     if not include_hidden_layers:
         # Frozen/off layers are not part of the displayed plan (other storeys, ceiling plans, ...).
         entities, hidden_layers = split_hidden(entities)
+    view_stats = None
+    if view_filter:
+        # Only what one layout viewport shows: its own frozen layers and model window.
+        entities, view_stats = split_by_view(entities, view_filter)
     virtual_lines, expanded_refs = expand_block_lines(entities, set().union(*rules.values()))
     if virtual_lines:
         entities = entities + virtual_lines
@@ -155,6 +159,11 @@ requires human review. Candidate counts are not counts of physical elements.
                        "message": f"{sum(hidden_layers.values())} entities on frozen or off layers were skipped "
                        f"({', '.join(sorted(hidden_layers)[:10])}{' ...' if len(hidden_layers) > 10 else ''}); "
                        "pass include_hidden_layers=true to analyse them."})
+    if view_stats is not None:
+        issues.append({"code": "viewport_scope_applied", "handles": [view_filter.get("handle") or ""],
+                       "message": f"Analysis limited to viewport {view_filter.get('handle')} of layout "
+                                  f"{view_filter.get('layout')}: {view_stats['frozen_in_viewport']} entities on layers "
+                                  f"frozen in it and {view_stats['outside_viewport']} outside its window were skipped."})
     boundary_checks = []
     valid_boundaries = {}
     boundary_budget = boundary_limits.MAX_BOUNDARY_CHECKS
@@ -409,6 +418,8 @@ requires human review. Candidate counts are not counts of physical elements.
         "coverage": {"scanned_entities": total, "examined_entities": len(entities),
                      "hidden_layer_entities_skipped": sum(hidden_layers.values()),
                      "hidden_layers_skipped": dict(sorted(hidden_layers.items())),
+                     "viewport_scope": ({"handle": view_filter.get("handle"), "layout": view_filter.get("layout"),
+                                         "window": view_filter.get("window"), **view_stats} if view_stats is not None else None),
                      "truncated": truncated, "unclassified_entities": len(unclassified)},
         "summary": {"candidate_count": len(candidates),
                     "by_category": dict(sorted(Counter(c["category"] for c in candidates).items()))},
@@ -439,6 +450,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   wall_opening_max_width: Optional[float] = None,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
                                   include_hidden_layers: bool = False,
+                                  view_filter: Optional[Dict[str, Any]] = None,
                                   max_list_items: Optional[int] = DEFAULT_MAX_LIST_ITEMS,
                                   max_response_chars: Optional[int] = DEFAULT_MAX_RESPONSE_CHARS) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
@@ -471,7 +483,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                         wall_junction_tolerance=wall_junction_tolerance,
                                         wall_opening_max_width=wall_opening_max_width,
                                         name_aliases=name_aliases,
-                                        include_hidden_layers=include_hidden_layers)
+                                        include_hidden_layers=include_hidden_layers,
+                                        view_filter=view_filter)
     from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
     freshness = check_snapshot_freshness(database)
     code = apply_to_report(report, freshness)
