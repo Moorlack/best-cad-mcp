@@ -321,6 +321,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-10-01 live PASS (Claude, установленный `70c826c`, AutoCAD PID 31324, Drawing1.dwg на Рабочем столе, 516 объектов): `scan_all_entities()` — быстрый скан 515 из DXF + 1 по COM; `analyze_architectural_drawing(wall_thickness_range='auto', wall_opening_max_width='auto', max_response_chars=25000)` — оценка 8 [6.4, 10] (8 пар, доля 0.75; стопка из 500 линий с шагом 60 отброшена), ширина проёмов 96, 8 сегментов, 2 контура (net 488064 каждый, колонна в левом), разрыв 36 с дугой без двери; ответ 21 422 символа. FAIL-найдено: при жёстком лимите вложенная обрезка резала координаты контуров (polygon_wcs до 3 вершин — искажает геометрию) и списки issues/limitations. Исправлено в checkout (НЕ установлено; 831 тест, ruff PASS): координатные списки и issues/limitations/missing_for_structural_design/warnings вложенной обрезкой не трогаются.
 
+- [x] 2026-10-01 (Claude, checkout, НЕ установлено; 836 тестов, ruff PASS): `report.plan_summary` в analyze_architectural_drawing и новый MCP `summarize_architectural_plan` (скан + анализ с auto-толщиной + краткая сводка одним вызовом; инструментов 124). Live-план после CMD п.4: на Drawing1 (516 объектов) summarize_architectural_plan() → сегменты/контуры/площади как у analyze с [4,12], толщина 8 (estimated); заодно проверить 2ee5326 (полигоны контуров и issues не режутся при обрезке).
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы

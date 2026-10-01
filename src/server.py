@@ -485,7 +485,7 @@ def _humanize_tool_name(name: str) -> str:
 
 def _registration_category(name: str) -> str:
     if name in {
-        "analyze_architectural_drawing", "analyze_geometry",
+        "analyze_architectural_drawing", "summarize_architectural_plan", "analyze_geometry",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -3732,7 +3732,7 @@ def _registered_tools():
 
 def _tool_category(name: str) -> str:
     if name in {
-        "analyze_architectural_drawing", "analyze_geometry",
+        "analyze_architectural_drawing", "summarize_architectural_plan", "analyze_geometry",
         "build_drawing_ir", "export_drawing_ir", "summarize_drawing",
         "explain_entity", "find_entities_by_description",
         "analyze_drawing_intent", "detect_semantic_objects",
@@ -5339,6 +5339,37 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
         wall_junction_tolerance=wall_junction_tolerance, wall_opening_max_width=wall_opening_max_width,
         name_aliases=name_aliases, max_list_items=max_list_items,
         max_response_chars=max_response_chars)
+
+
+@mcp.tool()
+def summarize_architectural_plan(ctx: Context, scan: bool = True,
+                                 layers: Optional[List[str]] = None,
+                                 architectural_layers_only: bool = False,
+                                 max_entities: int = 5000,
+                                 max_seconds: Optional[float] = 30.0,
+                                 wall_thickness_range: Optional[Union[List[float], str]] = "auto",
+                                 wall_opening_max_width: Optional[Union[float, str]] = "auto",
+                                 name_aliases: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+    """One call: (re)scan the active drawing, analyze it as an architectural plan and return a short summary.
+
+    scan=true runs scan_all_entities(fast, layers / architectural_layers_only, max_entities,
+    max_seconds) first; scan=false uses the existing cache. Then analyze_architectural_drawing runs with
+    wall_thickness_range/wall_opening_max_width (default "auto" = estimated from the drawing) and only
+    plan_summary is returned: scanned scope and freshness, wall segments/axis length/thickness, openings
+    and wall gaps, enclosed loops with net areas, main issue counts and a plain-text digest. Never
+    changes or saves the DWG. Call analyze_architectural_drawing for handles and evidence. All numbers
+    are geometric candidates in drawing units, not a verified takeoff.
+    """
+    scan_message = None
+    if scan:
+        scan_message = query_tools.scan_all_entities(
+            max_entities=max_entities, layers=layers, architectural_layers_only=architectural_layers_only,
+            max_seconds=max_seconds, fast=True)
+    result = understanding_architecture.analyze_architectural_drawing(
+        entity_limit=max(1, min(max_entities, 100000)), wall_thickness_range=wall_thickness_range,
+        wall_opening_max_width=wall_opening_max_width, name_aliases=name_aliases,
+        max_list_items=1, max_response_chars=None)
+    return understanding_architecture.plan_summary_result(result, scan_message)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True))

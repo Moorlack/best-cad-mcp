@@ -31,6 +31,7 @@ from .report_limits import (
     validate_max_list_items, validate_max_response_chars)
 from .block_contents import expand_block_lines
 from .plan_clusters import find_plan_clusters
+from .plan_summary import build_plan_summary
 from .quantities import build_quantity_summary
 from .thickness_estimate import estimate_wall_thickness
 from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
@@ -466,6 +467,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         for warning in context["warnings"]:
             report["issues"].append({"code": warning, "handles": [],
                                      "message": "Review project_context unit declarations; no conversion or scale confirmation was performed."})
+    report["plan_summary"] = build_plan_summary(report)
     handles = sorted({handle for c in report["candidates"] for handle in c["handles"]})
     warnings = sorted({issue["code"] for issue in report["issues"]})
     trimmed = fit_report(report, ARCHITECTURE_LIST_PATHS, max_list_items, max_response_chars)
@@ -480,3 +482,16 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
         warnings=warnings,
         next_tools=["explain_entity", "validate_geometry", "export_view_image_with_mapping"],
     )
+
+
+def plan_summary_result(result: Dict[str, Any], scan_message: Optional[str] = None) -> Dict[str, Any]:
+    """Reduce an analyze_architectural_drawing result to its plan_summary."""
+    if not result.get("ok"):
+        if scan_message is not None:
+            result.setdefault("data", {})["scan_message"] = scan_message
+        return result
+    summary = result["data"]["report"]["plan_summary"]
+    warnings = [w for w in result.get("warnings", []) if w != "report_lists_truncated"]
+    return ok_result(summary["text"].splitlines()[0],
+                     data={"plan_summary": summary, "scan_message": scan_message},
+                     warnings=warnings, next_tools=["analyze_architectural_drawing", "render_drawing_view"])
