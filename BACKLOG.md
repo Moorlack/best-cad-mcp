@@ -327,6 +327,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-10-01 (Claude; LIVE PASS 2026-10-01 (установлено 84ef2e7, AutoCAD PID 57492, Drawing1.dwg 516 объектов): scan_all_entities() → «515 from DXF, 1 over COM (1 of them only for bounding boxes and block data)»; summarize_architectural_plan(scan=false) — цифры идентичны прошлому прогону (8 сегментов, оси 5420, толщина 8, 2 контура по 488064, колонна, разрыв с дугой, block_contents_expanded — определение блока прочитано). Исходно: 842 теста, ruff PASS): гибридный быстрый скан INSERT/MLINE/TEXT/MTEXT/HATCH/размеров — поля из DXF, по COM только bbox, EffectiveName, IsDynamicBlock, постоянные атрибуты, определения блоков. Сверка из отдельного процесса на несохранённых документах (14 и 1114 объектов): записи совпадают полностью, COM 20.1 с → 5.8 с. Live-план после CMD п.4: scan_all_entities() на Drawing1 → «515 from DXF, 1 over COM (1 of them only for bounding boxes and block data)», summarize_architectural_plan() как раньше.
 
+- [x] 2026-10-01 (Claude, 14d2a1c, только тесты; 842 PASS): тесты test_all_interfaces::TestActiveXCallShapes при запуске после модуля, импортирующего src.server, подключались к РЕАЛЬНОМУ запущенному AutoCAD (заглушки win32com в модуле не действуют, если cad_controller уже импортирован) — 4 падения в подмножествах. Исправлено: в классе запрещён _get_active_autocad, сравнение VARIANT-точек; общий предохранитель в tests/conftest.py (list_instances → [], реальный GetActiveObject → ошибка). Проверено: AutoCAD после прогонов содержит только Drawing1; пары файлов и полный набор PASS.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы
