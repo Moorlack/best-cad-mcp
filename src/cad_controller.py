@@ -3805,7 +3805,7 @@ class CADController:
             return None
         if block_name in cache:
             return cache[block_name]
-        if len(cache) >= self.BLOCK_DEFINITION_LIMIT:
+        if sum(1 for value in cache.values() if value is not None) >= self.BLOCK_DEFINITION_LIMIT:
             return None
         result = None
         try:
@@ -3928,7 +3928,7 @@ class CADController:
             shutil.rmtree(folder, ignore_errors=True)
 
     def _fast_scan_records(self, document, items, limit, read_common, read_geometry, include_bbox,
-                           partials=None):
+                           partials=None, block_cache=None):
         """(records, com_handles) for the first `limit` entities in DXF order.
 
         `partials` (a dict) receives DXF fields of the COM handles for the hybrid reader.
@@ -3943,6 +3943,14 @@ class CADController:
 
         records, com_handles, order = read_dxf_entities(text, read_common, read_geometry, include_bbox, visual_path,
                                                         partials=partials)
+        if block_cache is not None:
+            # The export carries the referenced block definitions: no per-entity COM reads for them.
+            from src.dxf_entities import block_definitions
+            try:
+                block_cache.update(block_definitions(text, self.BLOCK_DEFINITION_ENTITY_LIMIT,
+                                                     self.BLOCK_DEFINITION_LINE_LIMIT, self.BLOCK_DEFINITION_ARC_LIMIT))
+            except Exception:
+                logger.debug("Could not read block definitions from the fast-scan DXF", exc_info=True)
         if not order:
             raise RuntimeError("The DXF export contained no entities.")
         keep = order[:limit]
@@ -4018,6 +4026,10 @@ class CADController:
                         info["is_xref"] = True
                 except Exception:
                     pass
+        elif obj_name in {"AcDbRotatedDimension", "AcDbAlignedDimension"}:
+            info.update(geometry)
+            # DIMLFAC can come from the style or an override: COM resolves it.
+            info["dimension_linear_factor"] = com_get(ent, "LinearScaleFactor", None)
         else:
             info.update(geometry)
         return info
@@ -4291,7 +4303,8 @@ class CADController:
                 fast_entities, com_handles = self._fast_scan_records(
                     document, selected_items, count,
                     read_common_properties or capture_visual_geometry,
-                    read_geometry or capture_visual_geometry, include_bounding_boxes, partials)
+                    read_geometry or capture_visual_geometry, include_bounding_boxes, partials,
+                    block_definition_cache)
                 selected_items = [document.HandleToObject(handle) for handle in com_handles]
                 count = len(selected_items)
                 for record in fast_entities:

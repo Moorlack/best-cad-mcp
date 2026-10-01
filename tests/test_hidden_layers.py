@@ -68,6 +68,20 @@ def test_compact_render_caps_overlay_lists_keeping_the_largest_items():
     export = {"ok": True, "data": {"snapshot": {"overlay_items": items, "context_json_path": "x.json"}}}
     slim = compact_export_for_model(export)["data"]["snapshot"]
     assert len(slim["overlay_items"]) == COMPACT_MAX_OVERLAY_ITEMS
-    assert slim["overlay_items"][0]["overlay_id"] == "E299"
+    assert slim["overlay_items"][-1]["overlay_id"] == "E299" and slim["overlay_items"][0]["overlay_id"] == "E180"
     assert slim["compact"]["truncated_overlay_lists"] == {"overlay_items": {"total": 300, "returned": 120}}
     assert len(export["data"]["snapshot"]["overlay_items"]) == 300  # the stored snapshot is untouched
+
+
+def test_compact_render_drops_long_paths_and_respects_a_text_budget():
+    path = [[float(i), 0.0] for i in range(500)]
+    items = [{"overlay_id": f"H{i}", "pixel_bbox": [0, 0, 10, 10], "world_path": path, "pixel_path": path}
+             for i in range(60)]
+    slim = compact_export_for_model({"ok": True, "data": {"snapshot": {"overlay_items": items}}})["data"]["snapshot"]
+    first = slim["overlay_items"][0]
+    assert "world_path" not in first and first["world_path_points"] == 500 and first["pixel_path_points"] == 500
+    big = [{"overlay_id": f"T{i}", "pixel_bbox": [0, 0, i + 1, i + 1], "note": "x" * 900} for i in range(100)]
+    slim = compact_export_for_model({"ok": True, "data": {"snapshot": {"overlay_items": big}}})["data"]["snapshot"]
+    import json
+    assert len(json.dumps(slim["overlay_items"])) <= 30000
+    assert slim["compact"]["truncated_overlay_lists"]["overlay_items"]["total"] == 100

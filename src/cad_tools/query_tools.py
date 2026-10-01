@@ -137,7 +137,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     total_available = result.get("total_available")
     if total_available is not None:
         lines.append(
-            f"Scanned {result.get('scanned', len(entities))}/{total_available} entities "
+            f"Scanned {result.get('scanned', len(entities)) - ((result.get('xrefs') or {}).get('entities_added') or 0)}"
+            f"/{total_available} model-space entities "
             f"(detail_level={result.get('detail_level', detail_level)}, "
             f"truncated={result.get('truncated', False)})."
         )

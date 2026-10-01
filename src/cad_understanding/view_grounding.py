@@ -3377,6 +3377,8 @@ _COMPACT_EMPTY_ITEM_KEYS = ("pixel_path", "world_path", "semantic_tags", "native
 
 
 COMPACT_MAX_OVERLAY_ITEMS = 120
+COMPACT_MAX_OVERLAY_CHARS = 30000  # per overlay list in the returned text
+COMPACT_MAX_PATH_POINTS = 16
 
 
 def _overlay_pixel_area(item: Any) -> float:
@@ -3402,18 +3404,32 @@ def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
     def trim(item: Any) -> Any:
         if not isinstance(item, dict):
             return item
-        return {key: value for key, value in item.items()
-                if not (key in _COMPACT_EMPTY_ITEM_KEYS and (not value or key == "native_handle"))}
+        out = {key: value for key, value in item.items()
+               if not (key in _COMPACT_EMPTY_ITEM_KEYS and (not value or key == "native_handle"))}
+        for path_key in ("world_path", "pixel_path"):
+            path = out.get(path_key)
+            if isinstance(path, list) and len(path) > COMPACT_MAX_PATH_POINTS:
+                # Hatch boundaries and dense polylines: the boxes locate them; the path is in the mapping JSON.
+                out.pop(path_key)
+                out[path_key + "_points"] = len(path)
+        return out
 
     truncated = {}
     for key in ("overlay_items", "primitive_overlay_items", "semantic_overlay_items"):
         if isinstance(slim.get(key), list):
-            items = slim[key]
-            if len(items) > COMPACT_MAX_OVERLAY_ITEMS:
-                # Largest on-screen items first: they are what a reader of the picture refers to.
-                items = sorted(items, key=_overlay_pixel_area, reverse=True)[:COMPACT_MAX_OVERLAY_ITEMS]
-                truncated[key] = {"total": len(slim[key]), "returned": len(items)}
-            slim[key] = [trim(item) for item in items]
+            items = [trim(item) for item in slim[key]]
+            # Keep the largest on-screen items (what a reader of the picture refers to), in original order.
+            order = sorted(range(len(items)), key=lambda i: _overlay_pixel_area(items[i]), reverse=True)
+            kept, used = set(), 0
+            for index in order:
+                size = len(json.dumps(items[index], default=str))
+                if len(kept) >= COMPACT_MAX_OVERLAY_ITEMS or used + size > COMPACT_MAX_OVERLAY_CHARS:
+                    break
+                kept.add(index)
+                used += size
+            if len(kept) < len(items):
+                truncated[key] = {"total": len(items), "returned": len(kept)}
+            slim[key] = [item for index, item in enumerate(items) if index in kept]
     slim["compact"] = {
         "truncated_overlay_lists": truncated,
         "dropped": [key for key in _COMPACT_DROP_SNAPSHOT_KEYS if key in snapshot],

@@ -82,13 +82,33 @@ def _float(pairs, code, default=0.0):
     return float(value) if value is not None else default
 
 
+# Spelling of linetype names as stored in the drawing (COM returns it; old drawings use "BYLAYER").
+_LINETYPES = {}
+
+
+def linetype_spellings(dxf_text):
+    """{NAME (upper): name as stored} from the LTYPE table."""
+    lines = dxf_text.splitlines()
+    names, in_entry = {}, False
+    for i in range(0, len(lines) - 1, 2):
+        code, value = lines[i].strip(), lines[i + 1].strip()
+        if code == "0":
+            in_entry = value == "LTYPE"
+            if value == "ENDSEC" and names:
+                break
+        elif in_entry and code == "2":
+            names[value.upper()] = value
+            in_entry = False
+    return names
+
+
 def _common(pairs):
     color = _first(pairs, "62")
-    linetype = _first(pairs, "6")
-    if linetype is not None:
-        linetype = {"BYLAYER": "ByLayer", "BYBLOCK": "ByBlock"}.get(linetype.upper(), linetype)
+    linetype = _first(pairs, "6") or "BYLAYER"
+    linetype = _LINETYPES.get(linetype.upper()) or {"BYLAYER": "ByLayer", "BYBLOCK": "ByBlock"}.get(
+        linetype.upper(), linetype)
     return {"layer": _first(pairs, "8", "0"), "color": int(color) if color is not None else 256,
-            "linetype": linetype or "ByLayer"}
+            "linetype": linetype}
 
 
 def _plan_normal(pairs):
@@ -259,6 +279,18 @@ def _text_geometry(kind, pairs):
     return {"text": _first(pairs, "1", "")}
 
 
+def _dimension_geometry(com_name, pairs):
+    """Linear dimension fields of the scan record; the linear scale factor still comes from COM."""
+    measurement = _first(pairs, "42")
+    if measurement is None or float(measurement) < 0 or _first(pairs, "13") is None or _first(pairs, "14") is None:
+        return None
+    geometry = {"measurement": float(measurement), "xline1_point": _point(pairs, "13", "23", "33"),
+                "xline2_point": _point(pairs, "14", "24", "34"), "text_override": _first(pairs, "1", "") or ""}
+    if com_name == "AcDbRotatedDimension":
+        geometry["dimension_rotation"] = math.radians(_float(pairs, "50"))
+    return geometry
+
+
 def partial_record(kind, pairs):
     """Fields DXF reproduces for kinds COM must still complete, or None to read them fully over COM.
 
@@ -284,7 +316,83 @@ def partial_record(kind, pairs):
         record["geometry"] = _mline_geometry(pairs)
     elif com_name in {"AcDbText", "AcDbMText"}:
         record["geometry"] = _text_geometry(kind, pairs)
+    elif com_name in {"AcDbRotatedDimension", "AcDbAlignedDimension"}:
+        record["geometry"] = _dimension_geometry(com_name, pairs)
     return record
+
+
+def iter_block_definitions(dxf_text):
+    """Yield (name, flags, base_point, [(type, pairs), ...]) for each BLOCK of the BLOCKS section."""
+    lines = dxf_text.splitlines()
+    i, in_blocks, header, entities, current, target = 0, False, None, None, None, None
+    while i + 1 < len(lines):
+        code, value = lines[i].strip(), lines[i + 1].rstrip("\r\n")
+        i += 2
+        if code == "0":
+            if current is not None and entities is not None:
+                entities.append(current)
+            current = target = None
+            if value == "SECTION" and i + 1 < len(lines) and lines[i].strip() == "2":
+                in_blocks = lines[i + 1].strip() == "BLOCKS"
+                continue
+            if not in_blocks:
+                continue
+            if value == "ENDSEC":
+                in_blocks = False
+            elif value == "BLOCK":
+                header, entities = [], []
+                target = header
+            elif value == "ENDBLK":
+                if header is not None:
+                    base = [_r(_float(header, "10")), _r(_float(header, "20")), _r(_float(header, "30"))]
+                    yield _first(header, "2", ""), int(_first(header, "70", "0") or 0), base, entities
+                header = entities = None
+            elif entities is not None and value not in _SUBENTITIES:
+                current = (value, [])
+                target = current[1]
+            continue
+        if target is not None:
+            target.append((code, _text(value) if code in _TEXT_CODES else value.strip()))
+
+
+def block_definitions(dxf_text, entity_limit, line_limit, arc_limit):
+    """{name: definition} in the format of the COM block-definition reader (door swings, block walls).
+
+    Xref and layout blocks map to None like the COM reader; blocks with non-plan lines or arcs are left
+    out so COM reads them.
+    """
+    found = {}
+    for name, flags, base, entities in iter_block_definitions(dxf_text):
+        if not name:
+            continue
+        if flags & 12 or name.upper().startswith(("*MODEL_SPACE", "*PAPER_SPACE")):
+            found[name] = None
+            continue
+        arcs, lines, plan = [], [], True
+        for kind, pairs in entities[:entity_limit]:
+            if kind == "LINE":
+                if len(lines) < line_limit:
+                    lines.append({"start": [_r(_float(pairs, "10")), _r(_float(pairs, "20")), _r(_float(pairs, "30"))],
+                                  "end": [_r(_float(pairs, "11")), _r(_float(pairs, "21")), _r(_float(pairs, "31"))],
+                                  "layer": _first(pairs, "8", "0")})
+                continue
+            if kind != "ARC":
+                continue
+            if not _plan_normal(pairs):
+                plan = False
+                break
+            cx, cy, cz, r = _float(pairs, "10"), _float(pairs, "20"), _float(pairs, "30"), _float(pairs, "40")
+            a0, a1 = math.radians(_float(pairs, "50")), math.radians(_float(pairs, "51"))
+            arcs.append({"center": [_r(cx), _r(cy), _r(cz)],
+                         "start": [_r(cx + r * math.cos(a0)), _r(cy + r * math.sin(a0)), _r(cz)],
+                         "end": [_r(cx + r * math.cos(a1)), _r(cy + r * math.sin(a1)), _r(cz)],
+                         "normal": [0.0, 0.0, 1.0]})
+            if len(arcs) >= arc_limit:
+                break
+        if plan:
+            found[name] = {"arcs": arcs, "lines": lines, "entity_count": len(entities),
+                           "truncated": len(entities) > entity_limit, "origin": base}
+    return found
 
 
 def read_dxf_entities(dxf_text, read_common=True, read_geometry=True, include_bbox=True, visual_path=None,
@@ -294,6 +402,8 @@ def read_dxf_entities(dxf_text, read_common=True, read_geometry=True, include_bb
     When a dict is passed as `partials`, it receives partial_record() results for the COM handles.
     """
     records, com_handles, order = {}, [], []
+    _LINETYPES.clear()
+    _LINETYPES.update(linetype_spellings(dxf_text))
     for kind, pairs in iter_entities(dxf_text):
         handle = _first(pairs, "5")
         if not handle:

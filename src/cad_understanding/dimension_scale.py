@@ -3,7 +3,8 @@
 A rotated/aligned dimension stores the measured value and its two extension-line points. When the
 value equals the distance between those points (along the dimension direction), the drawn geometry
 agrees with its own dimensions. This supports, but never proves, a drawing scale: the drawing units
-stay declared, and dimensions with overridden text or a linear scale factor other than 1 are skipped.
+stay declared, and dimensions with overridden text or a linear scale factor other than 1 are skipped
+(a negative factor applies only to layout dimensions, so model-space dimensions count as unscaled).
 """
 
 import math
@@ -32,6 +33,12 @@ def check_dimension_scale(entities, tolerance=DEFAULT_TOLERANCE):
         measured = geometry.get("measurement")
         p1, p2 = _xy(geometry.get("xline1_point")), _xy(geometry.get("xline2_point"))
         factor = geometry.get("dimension_linear_factor")
+        if type(factor) in (int, float) and factor < 0:
+            # A negative DIMLFAC applies only to dimensions in layouts; model-space values are unscaled.
+            factor = 1.0
+            model_space_factor = True
+        else:
+            model_space_factor = False
         reason = None
         if not (type(measured) in (int, float) and math.isfinite(measured) and measured > 0 and p1 and p2):
             reason = "dimension_data_not_captured"
@@ -61,7 +68,8 @@ def check_dimension_scale(entities, tolerance=DEFAULT_TOLERANCE):
             continue
         ratio = measured / drawn
         items.append({"handle": handle, "measured": measured, "drawn": drawn, "ratio": ratio, "axis": axis,
-                      "status": "agrees" if abs(ratio - 1.0) <= tolerance else "differs"})
+                      "status": "agrees" if abs(ratio - 1.0) <= tolerance else "differs",
+                      **({"negative_dimlfac_ignored_in_model_space": True} if model_space_factor else {})})
     agree = sum(1 for i in items if i["status"] == "agrees")
     result = {"checked": len(items), "agree": agree, "differ": len(items) - agree,
               "skipped": dict(sorted(skipped.items())), "tolerance_relative": tolerance,

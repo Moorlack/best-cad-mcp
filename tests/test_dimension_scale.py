@@ -63,3 +63,14 @@ def test_stored_rotation_that_does_not_match_the_measured_direction_is_tolerated
     # Neither direction matches: a real difference.
     wrong = check_dimension_scale([dim("W", 500, (0, 0, 0), (0, 1130, 0), rotation=0.0)])
     assert wrong["status"] == "differs"
+
+
+def test_negative_dimlfac_only_scales_layout_dimensions():
+    from src.cad_understanding.dimension_scale import check_dimension_scale
+    dim = {"handle": "D1", "entity_type": "AcDbRotatedDimension",
+           "geometry": {"measurement": 100.0, "xline1_point": [0, 0, 0], "xline2_point": [100, 5, 0],
+                        "dimension_rotation": 0.0, "text_override": "", "dimension_linear_factor": -192.0}}
+    result = check_dimension_scale([dim])
+    assert result["agree"] == 1 and result["items"][0]["negative_dimlfac_ignored_in_model_space"] is True
+    dim["geometry"]["dimension_linear_factor"] = 2.0
+    assert check_dimension_scale([dim])["skipped"] == {"linear_scale_factor_not_one": 1}

@@ -111,3 +111,54 @@ def test_partial_geometry_is_left_to_com_when_dxf_cannot_reproduce_it():
     assert partials["3A"]["geometry"] is None
     kinds = list(iter_entities(dxf(INSERT_ATTRS, long_attr, SEQ)))
     assert partial_record(*kinds[0])["geometry"] is None
+
+
+
+def dxf_with_blocks(blocks, entities=(), ltypes=("ByBlock", "ByLayer", "Continuous")):
+    tables = ["0", "SECTION", "2", "TABLES", "0", "TABLE", "2", "LTYPE"]
+    for name in ltypes:
+        tables += ["0", "LTYPE", "2", name, "70", "0"]
+    tables += ["0", "ENDTAB", "0", "ENDSEC"]
+    body = ["0", "SECTION", "2", "BLOCKS"]
+    for name, flags, base, items in blocks:
+        body += ["0", "BLOCK", "2", name, "70", str(flags), "10", str(base[0]), "20", str(base[1]), "30", "0"]
+        for kind, pairs in items:
+            body += ["0", kind] + [str(x) for pair in pairs for x in pair]
+        body += ["0", "ENDBLK"]
+    body += ["0", "ENDSEC", "0", "SECTION", "2", "ENTITIES"]
+    for kind, pairs in entities:
+        body += ["0", kind] + [str(x) for pair in pairs for x in pair]
+    body += ["0", "ENDSEC", "0", "EOF"]
+    return "\n".join(tables + body) + "\n"
+
+
+def test_block_definitions_match_the_com_reader_format():
+    from src.dxf_entities import block_definitions
+    door = [("LINE", [(8, "A-DOOR"), (10, 0), (20, 0), (30, 0), (11, 36), (21, 0), (31, 0)]),
+            ("ARC", [(8, "A-DOOR"), (10, 0), (20, 0), (30, 0), (40, 36), (50, 0), (51, 90)]),
+            ("ATTDEF", [(8, "0"), (2, "TAG")])]
+    tilted = [("ARC", [(10, 0), (20, 0), (30, 0), (40, 5), (50, 0), (51, 90), (210, 1), (220, 0), (230, 0)])]
+    text = dxf_with_blocks([("DOOR", 0, (5, 6), door), ("BASE", 4, (0, 0), []), ("ROT", 0, (0, 0), tilted),
+                            ("*Model_Space", 0, (0, 0), [])])
+    found = block_definitions(text, 500, 300, 16)
+    assert found["DOOR"] == {"arcs": [{"center": [0.0, 0.0, 0.0], "start": [36.0, 0.0, 0.0], "end": [0.0, 36.0, 0.0],
+                                       "normal": [0.0, 0.0, 1.0]}],
+                             "lines": [{"start": [0.0, 0.0, 0.0], "end": [36.0, 0.0, 0.0], "layer": "A-DOOR"}],
+                             "entity_count": 3, "truncated": False, "origin": [5.0, 6.0, 0.0]}
+    assert found["BASE"] is None and found["*Model_Space"] is None and "ROT" not in found  # xref / layout / COM
+
+
+def test_linetype_spelling_follows_the_drawing_and_dimensions_come_from_dxf():
+    from src.dxf_entities import read_dxf_entities
+    dim = ("DIMENSION", [(5, "D1"), (100, "AcDbEntity"), (8, "DIM"), (100, "AcDbDimension"), (1, ""), (42, 120.5),
+                         (100, "AcDbAlignedDimension"), (13, 0), (23, 0), (33, 0), (14, 0), (24, 120.5), (34, 0),
+                         (50, 90), (100, "AcDbRotatedDimension")])
+    old = dxf_with_blocks([], [LINE, dim], ltypes=("BYBLOCK", "BYLAYER", "CONTINUOUS"))
+    partials = {}
+    records, _, _ = read_dxf_entities(old, partials=partials)
+    assert records["2C1"]["linetype"] == "BYLAYER" and partials["D1"]["linetype"] == "BYLAYER"
+    assert partials["D1"]["geometry"] == {"measurement": 120.5, "xline1_point": [0.0, 0.0, 0.0],
+                                          "xline2_point": [0.0, 120.5, 0.0], "text_override": "",
+                                          "dimension_rotation": pytest.approx(math.pi / 2)}
+    new = dxf_with_blocks([], [LINE])
+    assert read_dxf_entities(new)[0]["2C1"]["linetype"] == "ByLayer"
