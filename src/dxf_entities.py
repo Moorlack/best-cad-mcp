@@ -4,6 +4,10 @@ Reading each entity over COM costs 15-40 ms; a DXF export is written by AutoCAD 
 parsed here in Python. Only entity kinds whose scan record can be reproduced exactly from DXF are
 taken (LINE, CIRCLE, ARC and plan-view LWPOLYLINE); everything else is returned as a handle for the
 regular COM reader, so the cache content is the same either way.
+
+Other kinds can still skip most COM calls: `partial_record` gives their handle, type, layer, colour and,
+for blocks, MLINEs and texts, the scanned geometry fields; COM then only adds what DXF cannot reproduce
+exactly (bounding boxes, effective block names, constant attributes, block definitions).
 """
 
 import math
@@ -13,6 +17,12 @@ DXF_TO_COM = {"LINE": "AcDbLine", "CIRCLE": "AcDbCircle", "ARC": "AcDbArc", "LWP
 _UNICODE_ESCAPE = re.compile(r"\\U\+([0-9A-Fa-f]{4})")
 # Entities that follow their owner in the ENTITIES section and are not separate model-space objects.
 _SUBENTITIES = {"ATTRIB", "VERTEX", "SEQEND"}
+_TEXT_CODES = {"1", "2", "3", "6", "8"}
+# Last DXF subclass marker -> COM ObjectName, only where both are known to agree.
+PARTIAL_TYPES = {"AcDbText", "AcDbMText", "AcDbHatch", "AcDbPoint", "AcDbBlockReference", "AcDbMline",
+                 "AcDbLeader", "AcDbMLeader", "AcDbEllipse", "AcDbSpline", "AcDb2dPolyline", "AcDb3dPolyline",
+                 "AcDbRotatedDimension", "AcDbAlignedDimension", "AcDbRadialDimension", "AcDbDiametricDimension",
+                 "AcDb3PointAngularDimension", "AcDb2LineAngularDimension", "AcDbOrdinateDimension"}
 
 
 def _r(value):
@@ -24,16 +34,26 @@ def _text(value):
 
 
 def iter_entities(dxf_text):
-    """Yield (type, [(code, value), ...]) for top-level entities of the ENTITIES section."""
+    """Yield (type, [(code, value), ...]) for top-level entities of the ENTITIES section.
+
+    ATTRIB entities after an INSERT are kept in the owner's pairs as ("ATTRIB", [(code, value), ...]);
+    VERTEX and SEQEND data are skipped.
+    """
     lines = dxf_text.splitlines()
-    i, in_entities, current = 0, False, None
+    i, in_entities, current, target = 0, False, None, None
     while i + 1 < len(lines):
         code, value = lines[i].strip(), lines[i + 1].rstrip("\r\n")
         i += 2
         if code == "0":
+            if in_entities and value in _SUBENTITIES and current is not None:
+                target = None
+                if value == "ATTRIB":
+                    target = []
+                    current[1].append(("ATTRIB", target))
+                continue
             if current is not None:
                 yield current
-                current = None
+                current = target = None
             if value == "SECTION" and i + 1 < len(lines) and lines[i].strip() == "2":
                 in_entities = lines[i + 1].strip() == "ENTITIES"
                 continue
@@ -42,9 +62,10 @@ def iter_entities(dxf_text):
                 continue
             if in_entities and value not in _SUBENTITIES:
                 current = (value, [])
+                target = current[1]
             continue
-        if current is not None:
-            current[1].append((code, value.strip() if code not in {"1", "8", "6"} else _text(value)))
+        if target is not None:
+            target.append((code, _text(value) if code in _TEXT_CODES else value.strip()))
     if current is not None:
         yield current
 
@@ -183,8 +204,95 @@ def entity_record(kind, pairs, read_common, read_geometry, include_bbox, visual_
     return info
 
 
-def read_dxf_entities(dxf_text, read_common=True, read_geometry=True, include_bbox=True, visual_path=None):
-    """(records, com_handles, order): fast records, handles COM must read, and every handle in file order."""
+def _last_marker(pairs):
+    marker = None
+    for code, value in pairs:
+        if code == "100":
+            marker = value
+    return marker
+
+
+def _point(pairs, x, y, z):
+    return [_r(_float(pairs, x)), _r(_float(pairs, y)), _r(_float(pairs, z))]
+
+
+def _insert_geometry(pairs):
+    if any(code == "101" for code, _ in pairs):
+        return None
+    attributes = []
+    for code, value in pairs:
+        if code != "ATTRIB":
+            continue
+        if any(c in {"101", "3"} for c, _ in value) or _first(value, "5") is None:
+            return None  # multiline or long attribute text: COM reads it
+        attributes.append({"Handle": _first(value, "5"), "TagString": _first(value, "2", ""),
+                           "TextString": _first(value, "1", ""),
+                           "Invisible": bool(int(_first(value, "70", "0")) & 1)})
+    geometry = {"block_name": _first(pairs, "2"), "insertion_point": _point(pairs, "10", "20", "30"),
+                "insertion_point_coordinate_system": "WCS", "normal": [0.0, 0.0, 1.0],
+                "rotation": math.radians(_float(pairs, "50")), "rotation_unit": "radian",
+                "x_scale": _float(pairs, "41", 1.0), "y_scale": _float(pairs, "42", 1.0),
+                "z_scale": _float(pairs, "43", 1.0), "visible": _first(pairs, "60", "0") != "1"}
+    return geometry, attributes
+
+
+def _mline_geometry(pairs):
+    vertices = []
+    for code, value in pairs:
+        if code == "11":
+            vertices.append([float(value), None, 0.0])
+        elif code == "21" and vertices:
+            vertices[-1][1] = float(value)
+        elif code == "31" and vertices:
+            vertices[-1][2] = float(value)
+    if not vertices or any(v[1] is None for v in vertices):
+        return None
+    return {"vertices": [[_r(x), _r(y), _r(z)] for x, y, z in vertices], "mline_style": _first(pairs, "2"),
+            "mline_scale": _float(pairs, "40", 1.0), "mline_justification": int(_first(pairs, "70", "0"))}
+
+
+def _text_geometry(kind, pairs):
+    if any(code == "101" for code, _ in pairs):
+        return None
+    if kind == "MTEXT":
+        return {"text": "".join(v for c, v in pairs if c == "3") + (_first(pairs, "1", "") or "")}
+    return {"text": _first(pairs, "1", "")}
+
+
+def partial_record(kind, pairs):
+    """Fields DXF reproduces for kinds COM must still complete, or None to read them fully over COM.
+
+    {"handle", "type", "name", "layer", "color", "linetype", "geometry"}; geometry is None when the
+    kind's scanned geometry cannot be taken from DXF; blocks also carry "attributes" (reference group).
+    """
+    com_name = _last_marker(pairs)
+    handle = _first(pairs, "5")
+    if com_name not in PARTIAL_TYPES or not handle:
+        return None
+    if com_name == "AcDbBlockReference" and any(c in {"70", "71"} and int(v) > 1 for c, v in pairs
+                                                if c in {"70", "71"}):
+        return None  # MINSERT arrays
+    record = {"handle": handle, "type": com_name, "name": com_name.replace("AcDb", ""), **_common(pairs),
+              "geometry": None}
+    if not _plan_normal(pairs):
+        return record
+    if com_name == "AcDbBlockReference":
+        found = _insert_geometry(pairs)
+        if found is not None:
+            record["geometry"], record["attributes"] = found
+    elif com_name == "AcDbMline":
+        record["geometry"] = _mline_geometry(pairs)
+    elif com_name in {"AcDbText", "AcDbMText"}:
+        record["geometry"] = _text_geometry(kind, pairs)
+    return record
+
+
+def read_dxf_entities(dxf_text, read_common=True, read_geometry=True, include_bbox=True, visual_path=None,
+                      partials=None):
+    """(records, com_handles, order): fast records, handles COM must read, and every handle in file order.
+
+    When a dict is passed as `partials`, it receives partial_record() results for the COM handles.
+    """
     records, com_handles, order = {}, [], []
     for kind, pairs in iter_entities(dxf_text):
         handle = _first(pairs, "5")
@@ -194,6 +302,10 @@ def read_dxf_entities(dxf_text, read_common=True, read_geometry=True, include_bb
         record = entity_record(kind, pairs, read_common, read_geometry, include_bbox, visual_path)
         if record is None:
             com_handles.append(handle)
+            if partials is not None:
+                partial = partial_record(kind, pairs)
+                if partial is not None:
+                    partials[handle] = partial
         else:
             records[handle] = record
     return records, com_handles, order

@@ -143,6 +143,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     if result.get("fast_scan"):
         info = result["fast_scan"]
         lines.append(f"Fast scan: {info['from_dxf']} entities from one DXF export, {info['from_com']} over COM"
+                     + (f" ({info['hybrid_dxf_plus_com']} of them only for bounding boxes and block data)"
+                        if info.get("hybrid_dxf_plus_com") else "")
                      + (f" (DXF export failed: {info['error']}; everything was read over COM)" if info.get("error") else "")
                      + ".")
     if result.get("layer_filter"):

@@ -2991,7 +2991,9 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
             an incomplete scan instead of timing out; None disables the limit.
         fast: (default true) Read LINE/CIRCLE/ARC/plan LWPOLYLINE from one DXF export (handles preserved)
             and only the other entity kinds over COM; ~40x faster on large drawings with the same cache
-            content; any export failure falls back to reading everything over COM.
+            content; any export failure falls back to reading everything over COM. Blocks, MLINEs, texts,
+            hatches and dimensions take their fields from the same export and use COM only for bounding
+            boxes, effective block names, constant attributes and block definitions (~3-4x faster).
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,

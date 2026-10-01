@@ -3927,8 +3927,12 @@ class CADController:
                     pass
             shutil.rmtree(folder, ignore_errors=True)
 
-    def _fast_scan_records(self, document, items, limit, read_common, read_geometry, include_bbox):
-        """(records, com_handles) for the first `limit` entities in DXF order."""
+    def _fast_scan_records(self, document, items, limit, read_common, read_geometry, include_bbox,
+                           partials=None):
+        """(records, com_handles) for the first `limit` entities in DXF order.
+
+        `partials` (a dict) receives DXF fields of the COM handles for the hybrid reader.
+        """
         from src.dxf_entities import read_dxf_entities
 
         text = self._export_selection_dxf(document, items)
@@ -3937,7 +3941,8 @@ class CADController:
             return self._scan_bulged_polyline_visual_path(ocs, bulges, closed, normal=[0.0, 0.0, 1.0],
                                                           elevation=elevation)
 
-        records, com_handles, order = read_dxf_entities(text, read_common, read_geometry, include_bbox, visual_path)
+        records, com_handles, order = read_dxf_entities(text, read_common, read_geometry, include_bbox, visual_path,
+                                                        partials=partials)
         if not order:
             raise RuntimeError("The DXF export contained no entities.")
         keep = order[:limit]
@@ -3948,6 +3953,68 @@ class CADController:
             if record is not None:
                 fast.append({"index": index, **record})
         return fast, [handle for handle in com_handles if handle in kept]
+
+    SCAN_GEOMETRY_TYPES = frozenset({
+        "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse", "AcDbSpline", "AcDbPolyline",
+        "AcDb2dPolyline", "AcDb3dPolyline", "AcDbBlockReference", "AcDbMline",
+        "AcDbRotatedDimension", "AcDbAlignedDimension",
+    })
+    # Kinds whose scan record gets geometry fields when geometry is read.
+    SCAN_GEOMETRY_BRANCHES = frozenset({
+        "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse", "AcDbSpline", "AcDbMline",
+        "AcDbRotatedDimension", "AcDbAlignedDimension", "AcDbBlockReference", "AcDbText", "AcDbMText",
+    })
+
+    def _hybrid_scan_record(self, document, ent, index, partial, read_common, read_geometry,
+                            capture_visual_geometry, include_bbox, block_definition_cache):
+        """Scan record from DXF fields plus the few COM reads DXF cannot reproduce; None = read fully over COM."""
+        obj_name = partial["type"]
+        capture = bool(capture_visual_geometry and obj_name in self.SCAN_GEOMETRY_TYPES)
+        need_geometry = (read_geometry or capture) and (
+            obj_name in self.SCAN_GEOMETRY_BRANCHES or "Polyline" in obj_name)
+        geometry = partial.get("geometry")
+        if need_geometry and geometry is None:
+            return None
+        info = {"index": index, "handle": partial["handle"], "type": obj_name,
+                "name": partial["name"], "layer": partial["layer"]}
+        if read_common or capture:
+            info["color"], info["linetype"] = partial["color"], partial["linetype"]
+        if include_bbox:
+            bbox = self._scan_bbox(ent)
+            if bbox is not None:
+                info["bbox"] = bbox
+        if not need_geometry:
+            return info
+        if obj_name == "AcDbBlockReference":
+            from types import SimpleNamespace
+
+            from src.cad_understanding.block_attributes import capture_block_attributes
+            typed_ent = ent
+            try:
+                typed_ent = win32com.client.Dispatch(ent)
+            except Exception:
+                pass
+            references = tuple(SimpleNamespace(**item) for item in partial.get("attributes") or ())
+            source = SimpleNamespace(GetAttributes=lambda: references,
+                                     GetConstantAttributes=lambda: typed_ent.GetConstantAttributes())
+            info["block_attributes"] = capture_block_attributes(source)
+            definition = self._scan_block_definition_arcs(document, geometry["block_name"], block_definition_cache)
+            if definition is not None:
+                info["block_definition"] = definition
+            if geometry["block_name"]:
+                info["block_name"] = geometry["block_name"]
+            effective = com_get(typed_ent, "EffectiveName", None)
+            if isinstance(effective, str) and effective:
+                info["effective_name"] = effective
+            info.update({key: geometry[key] for key in (
+                "insertion_point", "insertion_point_coordinate_system", "normal", "rotation", "x_scale",
+                "y_scale", "z_scale", "rotation_unit", "visible")})
+            dynamic = com_get(typed_ent, "IsDynamicBlock", None)
+            if isinstance(dynamic, bool):
+                info["is_dynamic_block"] = dynamic
+        else:
+            info.update(geometry)
+        return info
 
     def _architectural_layer_names(self, document) -> List[str]:
         """Layers whose names contain a known architectural word (see name_profiles)."""
@@ -4054,19 +4121,22 @@ class CADController:
         read_geometry = level in {DetailLevel.STANDARD, DetailLevel.FULL}
         fast_entities: List[Dict[str, Any]] = []
         fast_error = None
+        partials: Dict[str, Dict[str, Any]] = {}
+        com_handles: List[str] = []
+        hybrid_count = 0
         if fast:
             # Simple kinds come from one DXF export; COM reads only the rest.
             try:
                 fast_entities, com_handles = self._fast_scan_records(
                     document, selected_items, count,
                     read_common_properties or capture_visual_geometry,
-                    read_geometry or capture_visual_geometry, include_bounding_boxes)
+                    read_geometry or capture_visual_geometry, include_bounding_boxes, partials)
                 selected_items = [document.HandleToObject(handle) for handle in com_handles]
                 count = len(selected_items)
                 for record in fast_entities:
                     type_stats[record["type"]] = type_stats.get(record["type"], 0) + 1
             except Exception as exc:
-                fast_entities, fast_error = [], str(exc)
+                fast_entities, fast_error, partials = [], str(exc), {}
                 logger.warning("Fast DXF scan failed, reading every entity over COM: %s", exc)
 
         for i in range(count):
@@ -4075,6 +4145,16 @@ class CADController:
                 break
             try:
                 ent = selected_items[i] if selected_items is not None else model_space.Item(i)
+                partial = partials.get(com_handles[i]) if partials else None
+                if partial is not None:
+                    hybrid = self._hybrid_scan_record(
+                        document, ent, i, partial, read_common_properties, read_geometry,
+                        capture_visual_geometry, include_bounding_boxes, block_definition_cache)
+                    if hybrid is not None:
+                        type_stats[hybrid["type"]] = type_stats.get(hybrid["type"], 0) + 1
+                        hybrid_count += 1
+                        entities.append(hybrid)
+                        continue
                 obj_name = com_get(ent, "ObjectName", "Unknown")
                 type_stats[obj_name] = type_stats.get(obj_name, 0) + 1
                 info = {
@@ -4085,15 +4165,7 @@ class CADController:
                     "layer": com_get(ent, "Layer", "0"),
                 }
                 capture_entity_geometry = bool(
-                    capture_visual_geometry
-                    and obj_name in {
-                        "AcDbLine", "AcDbCircle", "AcDbArc", "AcDbEllipse",
-                        "AcDbSpline", "AcDbPolyline", "AcDb2dPolyline",
-                        "AcDb3dPolyline",
-                        "AcDbBlockReference", "AcDbMline",
-                        "AcDbRotatedDimension", "AcDbAlignedDimension",
-                    }
-                )
+                    capture_visual_geometry and obj_name in self.SCAN_GEOMETRY_TYPES)
                 if read_common_properties or capture_entity_geometry:
                     info["color"] = com_get(ent, "Color", 256)
                     info["linetype"] = com_get(ent, "Linetype", "ByLayer")
@@ -4333,7 +4405,7 @@ class CADController:
         return {
             "scan_source": ("dxf_export+com" if fast_entities else "com") if fast else "com",
             "fast_scan": ({"from_dxf": len(fast_entities), "from_com": len(entities) - len(fast_entities),
-                           "error": fast_error} if fast else None),
+                           "hybrid_dxf_plus_com": hybrid_count, "error": fast_error} if fast else None),
             "entities": entities,
             "total": len(entities),
             "total_available": total_available,

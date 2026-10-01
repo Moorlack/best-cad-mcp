@@ -325,6 +325,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-10-01 (Claude; LIVE PASS 2026-10-01 (установлено 144193a, AutoCAD PID 38204, Drawing1.dwg 516 объектов): analyze(auto, max_list_items=20, max_response_chars=15000) → 14928 символов (было 25926); убраны room_loops, segments, candidates, wall_networks.groups, source.quality, junctions, openings (omitted_sections с размерами); plan_summary, quantity_summary, все 13 issues, runs, plan_clusters на месте. summarize_architectural_plan() повторно PASS. Исходно: 838 тестов, ruff PASS): жёсткий `max_response_chars` — после обрезки списков крупнейшие детальные разделы заменяются на `{omitted_for_size, chars}` (`truncated_lists.omitted_sections`), сводки и issues остаются; иначе `response_limit_not_met`. Live-план: analyze(auto, max_list_items=20, max_response_chars=15000) на Drawing1 → ответ ≤ 15000, plan_summary целый.
 
+- [x] 2026-10-01 (Claude, checkout, НЕ установлено; 842 теста, ruff PASS): гибридный быстрый скан INSERT/MLINE/TEXT/MTEXT/HATCH/размеров — поля из DXF, по COM только bbox, EffectiveName, IsDynamicBlock, постоянные атрибуты, определения блоков. Сверка из отдельного процесса на несохранённых документах (14 и 1114 объектов): записи совпадают полностью, COM 20.1 с → 5.8 с. Live-план после CMD п.4: scan_all_entities() на Drawing1 → «515 from DXF, 1 over COM (1 of them only for bounding boxes and block data)», summarize_architectural_plan() как раньше.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы

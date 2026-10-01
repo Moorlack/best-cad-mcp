@@ -60,3 +60,54 @@ def test_reading_flags_and_visual_path_callback():
     records, _, _ = read_dxf_entities(dxf(POLY), visual_path=lambda *a: calls.append(a) or [[0, 0, 0]])
     assert records["2C4"]["visual_path"] == [[0, 0, 0]] and calls[0][2] is True
     assert entity_record("SPLINE", [("5", "1")], True, True, True) is None
+
+
+INSERT_ATTRS = ("INSERT", [(5, "3A"), (100, "AcDbEntity"), (8, "A-DOOR"), (62, 3), (100, "AcDbBlockReference"),
+                           (66, 1), (2, "DOOR"), (10, 200), (20, 0), (30, 0), (41, 2), (42, -1), (50, 30)])
+ATTRIB_NUM = ("ATTRIB", [(5, "3B"), (100, "AcDbText"), (1, r"\U+0414\U+0432\U+0435\U+0440\U+044C 7"),
+                         (100, "AcDbAttribute"), (2, "NUM"), (70, 0)])
+ATTRIB_HID = ("ATTRIB", [(5, "3C"), (100, "AcDbText"), (1, "secret"), (100, "AcDbAttribute"), (2, "HID"), (70, 1)])
+SEQ = ("SEQEND", [(5, "3D"), (8, "A-DOOR")])
+TEXT = ("TEXT", [(5, "40"), (100, "AcDbEntity"), (8, "A-ANNO"), (100, "AcDbText"), (10, 0), (20, 0), (30, 0),
+                 (40, 2.5), (1, "Room %%c"), (100, "AcDbText")])
+MTEXT = ("MTEXT", [(5, "41"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbMText"), (3, "first part "), (1, r"end\P")])
+MLINE = ("MLINE", [(5, "42"), (100, "AcDbEntity"), (8, "A-WALL"), (100, "AcDbMline"), (2, "WALL3"), (40, 2.5),
+                   (70, 1), (10, 0), (20, 0), (30, 0), (11, 0), (21, 0), (31, 0), (11, 100), (21, 0), (31, 0)])
+HATCH = ("HATCH", [(5, "43"), (100, "AcDbEntity"), (8, "A-HATCH"), (100, "AcDbHatch"), (2, "SOLID")])
+SOLID = ("SOLID", [(5, "44"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbTrace")])
+MINSERT = ("INSERT", [(5, "45"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbMInsertBlock"), (2, "X"), (70, 3)])
+
+
+def test_attributes_stay_with_their_insert_and_partial_records_cover_blocks_texts_mlines():
+    entities = list(iter_entities(dxf(INSERT_ATTRS, ATTRIB_NUM, ATTRIB_HID, SEQ, TEXT)))
+    assert [kind for kind, _ in entities] == ["INSERT", "TEXT"]
+    partials = {}
+    records, com_handles, order = read_dxf_entities(dxf(INSERT_ATTRS, ATTRIB_NUM, ATTRIB_HID, SEQ, TEXT, MTEXT,
+                                                        MLINE, HATCH, SOLID, MINSERT), partials=partials)
+    assert records == {} and com_handles == order == ["3A", "40", "41", "42", "43", "44", "45"]
+    assert set(partials) == {"3A", "40", "41", "42", "43"}  # SOLID marker differs from COM, MINSERT is an array
+    block = partials["3A"]
+    assert block["type"] == "AcDbBlockReference" and block["color"] == 3 and block["layer"] == "A-DOOR"
+    geometry = block["geometry"]
+    assert geometry["block_name"] == "DOOR" and geometry["insertion_point"] == [200.0, 0.0, 0.0]
+    assert geometry["rotation"] == pytest.approx(math.pi / 6) and geometry["x_scale"] == 2.0
+    assert geometry["y_scale"] == -1.0 and geometry["z_scale"] == 1.0 and geometry["visible"] is True
+    assert block["attributes"] == [
+        {"Handle": "3B", "TagString": "NUM", "TextString": "Дверь 7", "Invisible": False},
+        {"Handle": "3C", "TagString": "HID", "TextString": "secret", "Invisible": True}]
+    assert partials["40"]["geometry"] == {"text": "Room %%c"}
+    assert partials["41"]["geometry"] == {"text": r"first part end\P"}
+    assert partials["42"]["geometry"] == {"vertices": [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]], "mline_style": "WALL3",
+                                          "mline_scale": 2.5, "mline_justification": 1}
+    assert partials["43"]["geometry"] is None and partials["43"]["type"] == "AcDbHatch"
+
+
+def test_partial_geometry_is_left_to_com_when_dxf_cannot_reproduce_it():
+    from src.dxf_entities import partial_record
+    tilted = ("INSERT", INSERT_ATTRS[1] + [(210, 0), (220, 0), (230, -1)])
+    long_attr = ("ATTRIB", ATTRIB_NUM[1] + [(3, "more text")])
+    partials = {}
+    read_dxf_entities(dxf(tilted), partials=partials)
+    assert partials["3A"]["geometry"] is None
+    kinds = list(iter_entities(dxf(INSERT_ATTRS, long_attr, SEQ)))
+    assert partial_record(*kinds[0])["geometry"] is None
