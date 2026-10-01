@@ -147,6 +147,9 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                         if info.get("hybrid_dxf_plus_com") else "")
                      + (f" (DXF export failed: {info['error']}; everything was read over COM)" if info.get("error") else "")
                      + ".")
+    if result.get("hidden_layer_entities"):
+        lines.append(f"{result['hidden_layer_entities']} entities lie on frozen or off layers (layer_state); "
+                     "analysis and view mapping skip them unless include_hidden_layers is set.")
     if result.get("layer_filter"):
         lines.append("Scan limited to layers: " + ", ".join(result["layer_filter"][:20])
                      + (" ..." if len(result["layer_filter"]) > 20 else "")

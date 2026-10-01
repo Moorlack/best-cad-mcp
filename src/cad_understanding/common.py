@@ -10,6 +10,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.cad_database import CADDatabase, get_database
 
+from .layer_visibility import on_hidden_layer, split_hidden  # noqa: F401  (re-exported)
+
 BBox = Tuple[float, float, float, float]
 
 INTERNAL_ROW_KEYS = {

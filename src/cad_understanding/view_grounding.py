@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from src.cad_database import CADDatabase
 from src.workspace_paths import default_output_dir
 
+from .layer_visibility import on_hidden_layer
 from .common import (
     all_entities,
     bbox_center,
@@ -1497,6 +1498,8 @@ def _visible_entity_bboxes(database: CADDatabase,
     visible = []
     screen_bboxes: Dict[str, List[float]] = {}
     for entity in all_entities(database):
+        if on_hidden_layer(entity):
+            continue  # frozen/off layers are not in the picture
         bbox = bbox_from_row(entity)
         if bbox is None or not bbox_intersects(bbox, view_extent):
             continue
@@ -1616,7 +1619,7 @@ def _retry_blank_export(path: Path, raster: Path, warnings: List[str]) -> Option
 
 
 def _scanned_entity_extent(database: CADDatabase) -> Optional[BBox]:
-    return bbox_union(bbox_from_row(entity) for entity in all_entities(database))
+    return bbox_union(bbox_from_row(entity) for entity in all_entities(database) if not on_hidden_layer(entity))
 
 
 def _view_from_extent(extent: BBox,
@@ -3373,6 +3376,17 @@ _COMPACT_DROP_SNAPSHOT_KEYS = ("entity_overlay_items", "entity_screen_bboxes", "
 _COMPACT_EMPTY_ITEM_KEYS = ("pixel_path", "world_path", "semantic_tags", "native_handle")
 
 
+COMPACT_MAX_OVERLAY_ITEMS = 120
+
+
+def _overlay_pixel_area(item: Any) -> float:
+    box = item.get("pixel_bbox") if isinstance(item, dict) else None
+    try:
+        return max(abs(box[2] - box[0]), 1.0) * max(abs(box[3] - box[1]), 1.0)
+    except (TypeError, IndexError):
+        return 0.0
+
+
 def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
     """Shrink an export_view_image_with_mapping result for direct model reading.
 
@@ -3391,13 +3405,21 @@ def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
         return {key: value for key, value in item.items()
                 if not (key in _COMPACT_EMPTY_ITEM_KEYS and (not value or key == "native_handle"))}
 
+    truncated = {}
     for key in ("overlay_items", "primitive_overlay_items", "semantic_overlay_items"):
         if isinstance(slim.get(key), list):
-            slim[key] = [trim(item) for item in slim[key]]
+            items = slim[key]
+            if len(items) > COMPACT_MAX_OVERLAY_ITEMS:
+                # Largest on-screen items first: they are what a reader of the picture refers to.
+                items = sorted(items, key=_overlay_pixel_area, reverse=True)[:COMPACT_MAX_OVERLAY_ITEMS]
+                truncated[key] = {"total": len(slim[key]), "returned": len(items)}
+            slim[key] = [trim(item) for item in items]
     slim["compact"] = {
+        "truncated_overlay_lists": truncated,
         "dropped": [key for key in _COMPACT_DROP_SNAPSHOT_KEYS if key in snapshot],
         "full_snapshot": snapshot.get("context_json_path", ""),
-        "note": "Duplicated lists omitted; read the mapping JSON or use get_visible_entities_in_view for the full snapshot.",
+        "note": ("Duplicated lists omitted and overlay lists capped at the largest on-screen items; read the "
+                 "mapping JSON or use get_visible_entities_in_view for the full snapshot."),
     }
     compact = dict(export)
     compact["data"] = {**export["data"], "snapshot": slim}

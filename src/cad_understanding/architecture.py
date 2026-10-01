@@ -31,6 +31,7 @@ from .report_limits import (
     validate_max_list_items, validate_max_response_chars)
 from .block_contents import expand_block_lines
 from .plan_clusters import find_plan_clusters
+from .layer_visibility import split_hidden
 from .plan_summary import build_plan_summary
 from .quantities import build_quantity_summary
 from .thickness_estimate import estimate_wall_thickness
@@ -123,7 +124,8 @@ def _validate_opening_request(thickness_range, max_width):
 
 def build_architectural_report(drawing_ir: dict, wall_gap_tolerance=None,
                                wall_thickness_range=None, wall_junction_tolerance=None,
-                               wall_opening_max_width=None, name_aliases=None) -> dict:
+                               wall_opening_max_width=None, name_aliases=None,
+                               include_hidden_layers=False) -> dict:
     """Convert CAD-IR v2 to a deterministic, drawing-scoped candidate report.
 
 Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
@@ -138,12 +140,21 @@ requires human review. Candidate counts are not counts of physical elements.
     if not isinstance(section, dict) or not isinstance(section.get("items"), list):
         raise ValueError("CAD-IR must include the entities section with raw geometry.")
     entities = section["items"]
+    hidden_layers = {}
+    if not include_hidden_layers:
+        # Frozen/off layers are not part of the displayed plan (other storeys, ceiling plans, ...).
+        entities, hidden_layers = split_hidden(entities)
     virtual_lines, expanded_refs = expand_block_lines(entities, set().union(*rules.values()))
     if virtual_lines:
         entities = entities + virtual_lines
     drawing = deepcopy(drawing_ir.get("drawing", {}))
     identity = str(drawing.get("path") or drawing.get("name") or "unknown")
     candidates, unclassified, issues = [], [], []
+    if hidden_layers:
+        issues.append({"code": "hidden_layer_entities_skipped", "handles": [],
+                       "message": f"{sum(hidden_layers.values())} entities on frozen or off layers were skipped "
+                       f"({', '.join(sorted(hidden_layers)[:10])}{' ...' if len(hidden_layers) > 10 else ''}); "
+                       "pass include_hidden_layers=true to analyse them."})
     boundary_checks = []
     valid_boundaries = {}
     boundary_budget = boundary_limits.MAX_BOUNDARY_CHECKS
@@ -386,6 +397,8 @@ requires human review. Candidate counts are not counts of physical elements.
                    "freshness": "unverified", "quality": deepcopy(drawing_ir.get("quality", {})),
                    "warnings": deepcopy(drawing_ir.get("manifest", {}).get("warnings", []))},
         "coverage": {"scanned_entities": total, "examined_entities": len(entities),
+                     "hidden_layer_entities_skipped": sum(hidden_layers.values()),
+                     "hidden_layers_skipped": dict(sorted(hidden_layers.items())),
                      "truncated": truncated, "unclassified_entities": len(unclassified)},
         "summary": {"candidate_count": len(candidates),
                     "by_category": dict(sorted(Counter(c["category"] for c in candidates).items()))},
@@ -415,6 +428,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                   wall_junction_tolerance: Optional[float] = None,
                                   wall_opening_max_width: Optional[float] = None,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
+                                  include_hidden_layers: bool = False,
                                   max_list_items: Optional[int] = DEFAULT_MAX_LIST_ITEMS,
                                   max_response_chars: Optional[int] = DEFAULT_MAX_RESPONSE_CHARS) -> Dict[str, Any]:
     """Read scanned metadata without rescanning or altering the DWG."""
@@ -446,7 +460,8 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
                                         wall_thickness_range=wall_thickness_range,
                                         wall_junction_tolerance=wall_junction_tolerance,
                                         wall_opening_max_width=wall_opening_max_width,
-                                        name_aliases=name_aliases)
+                                        name_aliases=name_aliases,
+                                        include_hidden_layers=include_hidden_layers)
     from .snapshot_freshness import MESSAGES, apply_to_report, check_snapshot_freshness
     freshness = check_snapshot_freshness(database)
     code = apply_to_report(report, freshness)

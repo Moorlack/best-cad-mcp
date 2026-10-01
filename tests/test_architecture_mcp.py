@@ -64,4 +64,4 @@ def test_native_mcp_passes_explicit_project_id():
                                     wall_gap_tolerance=0.25, wall_thickness_range=None,
                                     wall_junction_tolerance=None, wall_opening_max_width=None,
                                    name_aliases=None, max_list_items=200,
-                                   max_response_chars=60000)
+                                   max_response_chars=60000, include_hidden_layers=False)

@@ -5,6 +5,7 @@ import math
 from collections import Counter
 from copy import deepcopy
 
+from .layer_visibility import split_hidden
 from .block_attributes import summarize_block_attributes
 from . import boundaries as boundary_limits
 from .boundaries import check_boundary
@@ -42,8 +43,12 @@ def _line_exclusion_reason(geometry):
 
 def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=None,
                           reference_lengths=None, parallel_separation_range=None,
-                          parallel_angle_tolerance_degrees=None, junction_tolerance=None):
-    """Pure Python entry point. Filters intersect; names are exact and never semantic."""
+                          parallel_angle_tolerance_degrees=None, junction_tolerance=None,
+                          include_hidden_layers=False):
+    """Pure Python entry point. Filters intersect; names are exact and never semantic.
+
+    Entities the scan marked as lying on frozen/off layers are skipped unless include_hidden_layers.
+    """
     _selection(handles, 'handles')
     _selection(layers, 'layers')
     validate_gap_tolerance(gap_tolerance)
@@ -60,6 +65,9 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
     entities = section['items']
     selected = [e for e in entities if (handles is None or e.get('handle') in handles)
                 and (layers is None or e.get('layer') in layers)]
+    hidden_layers = {}
+    if not include_hidden_layers:
+        selected, hidden_layers = split_hidden(selected)
     counts = Counter(str(e.get('handle') or '') for e in entities)
     drawing = deepcopy(drawing_ir.get('drawing', {}))
     identity = str(drawing.get('path') or drawing.get('name') or 'unknown')
@@ -119,6 +127,8 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
               'selection': {'handles': handles, 'layers': layers, 'combination': 'intersection',
                             'missing_or_filtered_handles': missing, 'missing_or_filtered_layers': missing_layers},
               'coverage': {'snapshot_entities': len(entities), 'selected_entities': len(selected),
+                           'hidden_layer_entities_skipped': sum(hidden_layers.values()),
+                           'hidden_layers_skipped': dict(sorted(hidden_layers.items())),
                            'snapshot_truncated': truncated, 'invalid_identity_handles': sorted(set(identity_errors)),
                            'unsupported_entities': unsupported},
               'line_diagnostics': diagnostics, 'line_networks': networks,
@@ -141,7 +151,7 @@ def build_geometry_report(drawing_ir, handles=None, layers=None, gap_tolerance=N
 def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_tolerance=None,
                      reference_lengths=None, parallel_separation_range=None,
                      parallel_angle_tolerance_degrees=None, junction_tolerance=None, database=None,
-                     max_list_items=200, max_response_chars=60000):
+                     max_list_items=200, max_response_chars=60000, include_hidden_layers=False):
     # Lazy imports keep the pure entry point independent of SQLite/AutoCAD/MCP runtime.
     from .ir_builder import build_drawing_ir
     from .result import error_result, ok_result
@@ -163,7 +173,7 @@ def analyze_geometry(entity_limit=10000, handles=None, layers=None, gap_toleranc
                                     entity_limit=entity_limit, include_raw=True)
         report = build_geometry_report(snapshot, handles, layers, gap_tolerance, reference_lengths,
                                        parallel_separation_range, parallel_angle_tolerance_degrees,
-                                       junction_tolerance)
+                                       junction_tolerance, include_hidden_layers)
     except ValueError as exc:
         return error_result(str(exc))
     from .snapshot_freshness import apply_to_report, check_snapshot_freshness

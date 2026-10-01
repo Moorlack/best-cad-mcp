@@ -63,6 +63,7 @@ def test_native_mcp_summarize_plan_scans_then_analyzes(scan):
     else:
         scan_fn.assert_not_called()
     analyze.assert_called_once_with(entity_limit=800, wall_thickness_range="auto", wall_opening_max_width="auto",
-                                    name_aliases=None, max_list_items=1, max_response_chars=None)
+                                    name_aliases=None, max_list_items=1, max_response_chars=None,
+                                    include_hidden_layers=False)
     data = result["structuredContent"]["result"]["data"]
     assert data["plan_summary"]["text"] == "digest" and data["scan_message"] == ("scanned" if scan else None)

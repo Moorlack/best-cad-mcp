@@ -4016,6 +4016,24 @@ class CADController:
             info.update(geometry)
         return info
 
+    def _hidden_layer_states(self, document) -> Dict[str, str]:
+        """{LAYER NAME (upper): "frozen" | "off"} for layers whose objects are not displayed."""
+        states: Dict[str, str] = {}
+        try:
+            layers = document.Layers
+            for index in range(int(layers.Count)):
+                layer = layers.Item(index)
+                name = com_get(layer, "Name", "")
+                if not isinstance(name, str) or not name:
+                    continue
+                if com_get(layer, "Freeze", False) is True:
+                    states[name.upper()] = "frozen"
+                elif com_get(layer, "LayerOn", True) is False:
+                    states[name.upper()] = "off"
+        except Exception:
+            logger.debug("Could not read layer visibility", exc_info=True)
+        return states
+
     def _architectural_layer_names(self, document) -> List[str]:
         """Layers whose names contain a known architectural word (see name_profiles)."""
         from src.cad_understanding.name_profiles import build_rules, tokens
@@ -4402,7 +4420,17 @@ class CADController:
         self._attach_mline_style_offsets(document, entities)
         if fast_entities:
             entities = fast_entities + entities
+        hidden_layers = self._hidden_layer_states(document)
+        hidden_count = 0
+        if hidden_layers:
+            for info in entities:
+                state = hidden_layers.get(str(info.get("layer") or "").upper())
+                if state:
+                    info["layer_state"] = state
+                    hidden_count += 1
         return {
+            "hidden_layer_entities": hidden_count,
+            "hidden_layers": dict(sorted(hidden_layers.items())) or None,
             "scan_source": ("dxf_export+com" if fast_entities else "com") if fast else "com",
             "fast_scan": ({"from_dxf": len(fast_entities), "from_com": len(entities) - len(fast_entities),
                            "hybrid_dxf_plus_com": hybrid_count, "error": fast_error} if fast else None),

@@ -1,8 +1,9 @@
 """Architectural adapter: estimate the usual wall thickness from the drawn wall faces.
 
 Callers rarely know the wall thickness range in drawing units. Each wall face is paired with its
-nearest parallel overlapping wall face; the most common separation (log-scale histogram) is taken
-as the typical thickness and a range around it is suggested. The estimate is a starting point for
+nearest parallel overlapping wall face; separations are binned on a log scale and weighted by overlap length. Each
+peak with a sizeable share of the length is taken as a wall type (plans often mix interior and
+exterior walls) and the suggested range spans all of them. The estimate is a starting point for
 pairing, never a verified wall type.
 """
 
@@ -16,6 +17,7 @@ BIN_RATIO = 1.05
 RANGE_LOW, RANGE_HIGH = 0.8, 1.25
 MAX_SEPARATION_SHARE = 0.05  # of the wall-face extent diagonal
 OPENING_WIDTH_FACTOR = 12.0
+PEAK_MIN_SHARE = 0.15  # of the paired overlap length
 
 
 def estimate_wall_thickness(candidates):
@@ -68,19 +70,43 @@ def estimate_wall_thickness(candidates):
         side = pair["offset_side"] * flip.get(first, 1)
         if not (stacked(first, pair["separation_mean"], side) or stacked(second, pair["separation_mean"], -side)):
             unique.append(pair)
-    bins = defaultdict(list)
+    # Weight by overlap length: a few long exterior walls matter more than many short pieces.
+    weights, members = defaultdict(float), defaultdict(list)
     for pair in unique:
         value = pair["separation_mean"]
         if value > 0:
-            bins[round(math.log(value) / math.log(BIN_RATIO))].append(value)
-    if not bins:
+            key = round(math.log(value) / math.log(BIN_RATIO))
+            weights[key] += float(pair.get("overlap_length") or 0.0) or 1.0
+            members[key].append(value)
+    if not weights:
         return None
-    best = max(bins, key=lambda key: (len(bins[key]) + 0.5 * (len(bins.get(key - 1, ())) + len(bins.get(key + 1, ()))), -key))
-    values = bins[best] + bins.get(best - 1, []) + bins.get(best + 1, [])
-    peak = sorted(values)[len(values) // 2]
-    total = sum(len(v) for v in bins.values())
-    return {"peak_drawing_units": peak, "range_drawing_units": [peak * RANGE_LOW, peak * RANGE_HIGH],
-            "pairs_considered": total, "peak_share": len(values) / total,
-            "suggested_opening_max_width_drawing_units": peak * OPENING_WIDTH_FACTOR,
-            "method": "most common nearest parallel wall-face separation (log histogram, 5% bins)",
+    total = sum(weights.values())
+
+    def around(key):
+        return weights.get(key - 1, 0.0) + weights.get(key, 0.0) + weights.get(key + 1, 0.0)
+
+    def smoothed(key):
+        return weights.get(key, 0.0) + 0.5 * (weights.get(key - 1, 0.0) + weights.get(key + 1, 0.0))
+
+    # Local maxima of the smoothed histogram; several wall types give several peaks.
+    candidates = sorted((k for k in weights if smoothed(k) >= smoothed(k - 1) and smoothed(k) > smoothed(k + 1)),
+                        key=lambda k: (-around(k), k))
+    peaks = []
+    for key in candidates:
+        if peaks and around(key) / total < PEAK_MIN_SHARE:
+            break
+        if all(abs(key - other) > 2 for other, _ in peaks):
+            values = sorted(members.get(key - 1, []) + members.get(key, []) + members.get(key + 1, []))
+            peaks.append((key, values[len(values) // 2]))
+    if not peaks:
+        return None
+    main_key, main = peaks[0]
+    thicknesses = [value for _, value in peaks]
+    return {"peak_drawing_units": main,
+            "peaks": [{"thickness_drawing_units": value, "length_share": around(key) / total} for key, value in peaks],
+            "range_drawing_units": [min(thicknesses) * RANGE_LOW, max(thicknesses) * RANGE_HIGH],
+            "pairs_considered": len(unique), "peak_share": around(main_key) / total,
+            "suggested_opening_max_width_drawing_units": max(thicknesses) * OPENING_WIDTH_FACTOR,
+            "method": ("nearest parallel wall-face separations, log histogram (5% bins) weighted by overlap length; "
+                       f"every peak holding at least {PEAK_MIN_SHARE:.0%} of the length is a wall type"),
             "verified": False}

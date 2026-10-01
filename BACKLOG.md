@@ -329,6 +329,8 @@ geometry_scale_verified=false, предупреждение geometry_scale_unver
 
 - [x] 2026-10-01 (Claude, 14d2a1c, только тесты; 842 PASS): тесты test_all_interfaces::TestActiveXCallShapes при запуске после модуля, импортирующего src.server, подключались к РЕАЛЬНОМУ запущенному AutoCAD (заглушки win32com в модуле не действуют, если cad_controller уже импортирован) — 4 падения в подмножествах. Исправлено: в классе запрещён _get_active_autocad, сравнение VARIANT-точек; общий предохранитель в tests/conftest.py (list_instances → [], реальный GetActiveObject → ошибка). Проверено: AutoCAD после прогонов содержит только Drawing1; пары файлов и полный набор PASS.
 
+- [x] 2026-10-01 (Claude, checkout, НЕ установлено; 849 тестов, ruff PASS): по результатам реального образца Autodesk `Wall Base.dwg` — (1) объекты на замороженных/выключенных слоях помечаются при скане и пропускаются анализом и overlay (`include_hidden_layers`); (2) оценка толщины по нескольким пикам, взвешенным по длине; (3) компактный рендер ограничивает overlay 120 элементами. Проверено на checkout из отдельного процесса (Wall Base): 1453 скрытых объекта пропущены, 3 типа стен, 72 сегмента, 7 контуров. Live-план после CMD п.4: открыть копию Wall Base, summarize_architectural_plan() → «1453 entities on frozen/off layers skipped», толщины 9/4.75/6.5; render_drawing_view(crop_to_content=true) → ответ < 60 КБ, overlay без слоёв 1_*.
+
 ## Недостающие входные материалы и ближайшие шаги
 
 Постоянное разрешение пользователя от 2026-09-22: открываемые им для этой работы

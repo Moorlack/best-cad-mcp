@@ -5270,7 +5270,8 @@ def analyze_geometry(ctx: Context, entity_limit: int = 10000,
                      parallel_angle_tolerance_degrees: Optional[float] = None,
                      junction_tolerance: Optional[float] = None,
                      max_list_items: Optional[int] = 200,
-                     max_response_chars: Optional[int] = 60000) -> Dict[str, Any]:
+                     max_response_chars: Optional[int] = 60000,
+                     include_hidden_layers: bool = False) -> Dict[str, Any]:
     """Read-only geometry checks for any domain, independent of layer naming conventions.
 
     Run a fresh scan first. Exact handles/layers filters intersect; omitted filters
@@ -5286,8 +5287,9 @@ def analyze_geometry(ctx: Context, entity_limit: int = 10000,
     Long lists are trimmed to max_list_items (default 200) and, if needed, further until the report is
     at most max_response_chars (default 60000) so clients can read it; null disables either limit.
     truncated_lists gives each total and counts elsewhere are complete.
+    Entities on frozen or off layers (not displayed) are skipped unless include_hidden_layers=true.
     """
-    return understanding_geometry.analyze_geometry(entity_limit=entity_limit, handles=handles,
+    return understanding_geometry.analyze_geometry(include_hidden_layers=include_hidden_layers,entity_limit=entity_limit, handles=handles,
         layers=layers, gap_tolerance=gap_tolerance, reference_lengths=reference_lengths,
         parallel_separation_range=parallel_separation_range,
         parallel_angle_tolerance_degrees=parallel_angle_tolerance_degrees,
@@ -5305,7 +5307,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   wall_opening_max_width: Optional[Union[float, str]] = None,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
                                   max_list_items: Optional[int] = 200,
-                                  max_response_chars: Optional[int] = 60000) -> Dict[str, Any]:
+                                  max_response_chars: Optional[int] = 60000,
+                                  include_hidden_layers: bool = False) -> Dict[str, Any]:
     """Inventory architectural candidates from a fresh scan, with handles and uncertainty.
 
     Run scan_all_entities first on the intended drawing. Reads cached geometry only;
@@ -5327,7 +5330,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     (drawing units, needs wall_thickness_range) searches face gaps up to that width.
     Opening size, type and structural role are not determined.
     wall_thickness_range="auto" estimates the typical wall thickness from nearest parallel wall faces
-    (wall_thickness_estimate); wall_opening_max_width="auto" then uses 12x that thickness.
+    (wall_thickness_estimate, several wall types become several peaks and the range covers them);
+    wall_opening_max_width="auto" then uses 12x the thickest type.
     Layer/block names are matched by whole words in English, Russian, Ukrainian, transliterated
     Russian and German, splitting CamelCase and separators; optional name_aliases
     {wall|door|window|opening|grid|column|slab_boundary|room_boundary: [words]} adds project words.
@@ -5336,13 +5340,14 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     limit. truncated_lists gives each total, other counts are complete; repeated issue codes are counted.
     If lists at 3 items still exceed max_response_chars, the largest detail sections are replaced by
     {omitted_for_size, chars} (truncated_lists.omitted_sections); plan_summary, quantity_summary and issues stay.
+    Entities on frozen or off layers (other storeys, ceiling plans) are skipped unless include_hidden_layers=true.
     """
     return understanding_architecture.analyze_architectural_drawing(
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
         wall_gap_tolerance=wall_gap_tolerance, wall_thickness_range=wall_thickness_range,
         wall_junction_tolerance=wall_junction_tolerance, wall_opening_max_width=wall_opening_max_width,
         name_aliases=name_aliases, max_list_items=max_list_items,
-        max_response_chars=max_response_chars)
+        max_response_chars=max_response_chars, include_hidden_layers=include_hidden_layers)
 
 
 @mcp.tool()
@@ -5353,7 +5358,8 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
                                  max_seconds: Optional[float] = 30.0,
                                  wall_thickness_range: Optional[Union[List[float], str]] = "auto",
                                  wall_opening_max_width: Optional[Union[float, str]] = "auto",
-                                 name_aliases: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+                                 name_aliases: Optional[Dict[str, List[str]]] = None,
+                                 include_hidden_layers: bool = False) -> Dict[str, Any]:
     """One call: (re)scan the active drawing, analyze it as an architectural plan and return a short summary.
 
     scan=true runs scan_all_entities(fast, layers / architectural_layers_only, max_entities,
@@ -5361,7 +5367,8 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     wall_thickness_range/wall_opening_max_width (default "auto" = estimated from the drawing) and only
     plan_summary is returned: scanned scope and freshness, wall segments/axis length/thickness, openings
     and wall gaps, enclosed loops with net areas, main issue counts and a plain-text digest. Never
-    changes or saves the DWG. Call analyze_architectural_drawing for handles and evidence. All numbers
+    changes or saves the DWG. Entities on frozen/off layers are skipped unless include_hidden_layers=true.
+    Call analyze_architectural_drawing for handles and evidence. All numbers
     are geometric candidates in drawing units, not a verified takeoff.
     """
     scan_message = None
@@ -5372,7 +5379,7 @@ def summarize_architectural_plan(ctx: Context, scan: bool = True,
     result = understanding_architecture.analyze_architectural_drawing(
         entity_limit=max(1, min(max_entities, 100000)), wall_thickness_range=wall_thickness_range,
         wall_opening_max_width=wall_opening_max_width, name_aliases=name_aliases,
-        max_list_items=1, max_response_chars=None)
+        max_list_items=1, max_response_chars=None, include_hidden_layers=include_hidden_layers)
     return understanding_architecture.plan_summary_result(result, scan_message)
 
 

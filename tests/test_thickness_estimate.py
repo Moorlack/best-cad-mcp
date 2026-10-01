@@ -57,3 +57,29 @@ def test_periodic_parallel_lines_do_not_win_over_wall_faces():
     ir["sections"]["entities"]["total"] += len(stack)
     report = build_architectural_report(ir, wall_thickness_range="auto")
     assert report["wall_thickness_estimate"]["peak_drawing_units"] == pytest.approx(200.0)
+
+
+def test_several_wall_types_give_several_peaks_and_a_range_covering_them():
+    thin, thick = plan(200.0), plan(400.0)
+    shifted = []
+    for e in thick["sections"]["entities"]["items"]:
+        g = e["geometry"]
+        shifted.append(line("X" + e["handle"], [g["start"][0], g["start"][1] + 20000, 0],
+                            [g["end"][0], g["end"][1] + 20000, 0]))
+    thin["sections"]["entities"]["items"] += shifted
+    thin["sections"]["entities"]["total"] += len(shifted)
+    report = build_architectural_report(thin, wall_thickness_range="auto", wall_opening_max_width="auto")
+    estimate = report["wall_thickness_estimate"]
+    assert sorted(p["thickness_drawing_units"] for p in estimate["peaks"]) == [pytest.approx(200.0), pytest.approx(400.0)]
+    assert estimate["range_drawing_units"] == pytest.approx([160.0, 500.0])
+    assert estimate["suggested_opening_max_width_drawing_units"] == pytest.approx(4800.0)
+    assert report["wall_segment_candidates"]["segment_count"] == 12
+    assert report["wall_segment_candidates"]["room_loops"]["loop_count"] == 4
+
+
+def test_a_minor_separation_is_not_a_wall_type():
+    ir = plan(200.0)
+    # one short pair of faces 50 apart: far below the 15% length share
+    ir["sections"]["entities"]["items"] += [line("Sa", [20000, 0, 0], [20100, 0, 0]), line("Sb", [20000, 50, 0], [20100, 50, 0])]
+    estimate = build_architectural_report(ir, wall_thickness_range="auto")["wall_thickness_estimate"]
+    assert [p["thickness_drawing_units"] for p in estimate["peaks"]] == [pytest.approx(200.0)]
