@@ -3,10 +3,10 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "AECMB_PRODUCT=AutoCAD"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title AutoCAD MCP setup v2026.09.29.04
+title AutoCAD MCP setup v2026.10.01.01
 
 echo.
-echo AutoCAD MCP setup v2026.09.29.04
+echo AutoCAD MCP setup v2026.10.01.01
 echo This script configures only the selected product without removing or replacing unrelated MCP servers.
 echo.
 
@@ -67,7 +67,7 @@ $StepNumber = 0
 $script:BridgeProduct = 'AutoCAD'
 $script:BridgeProductLabel = 'AutoCAD'
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.09.29.04'
+$script:InstallerVersion = '2026.10.01.01'
 $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20AutoCAD.cmd'
 
 function Write-Ok([string]$Message) {
@@ -1154,7 +1154,12 @@ function Test-McpServerStartup {
             throw "The MCP server exited during startup with code $($process.ExitCode)."
         }
 
-        & taskkill.exe /PID $process.Id /T /F *> $null
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null } catch { }
+        finally { $ErrorActionPreference = $previousPreference }
+        try { if (-not $process.HasExited) { $process.Kill() } } catch { }
+        $global:LASTEXITCODE = 0
         try { $process.WaitForExit(3000) | Out-Null } catch {}
 
         Write-Ok 'Python MCP server startup test passed.'
@@ -2118,7 +2123,13 @@ function Test-AutoCadMcpServerStartup {
     }
     finally {
         if ($process -and -not $process.HasExited) {
-            & taskkill.exe /PID $process.Id /T /F *> $null
+            # The server's child processes may already be gone; a failed tree kill must not fail setup.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try { & taskkill.exe /PID $process.Id /T /F 2>&1 | Out-Null } catch { }
+            finally { $ErrorActionPreference = $previousPreference }
+            try { if (-not $process.HasExited) { $process.Kill() } } catch { }
+            $global:LASTEXITCODE = 0
         }
         Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
     }
