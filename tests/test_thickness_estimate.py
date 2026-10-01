@@ -48,3 +48,12 @@ def test_invalid_auto_combinations_are_rejected():
         build_architectural_report(plan(), wall_opening_max_width="auto")
     with pytest.raises(ValueError):
         build_architectural_report(plan(), wall_thickness_range="automatic")
+
+
+def test_periodic_parallel_lines_do_not_win_over_wall_faces():
+    ir = plan()
+    stack = [line(f"H{i}", [20000, i * 60.0, 0], [21000, i * 60.0, 0]) for i in range(40)]  # hatch-like stack
+    ir["sections"]["entities"]["items"] += stack
+    ir["sections"]["entities"]["total"] += len(stack)
+    report = build_architectural_report(ir, wall_thickness_range="auto")
+    assert report["wall_thickness_estimate"]["peak_drawing_units"] == pytest.approx(200.0)

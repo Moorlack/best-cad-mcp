@@ -62,6 +62,21 @@ def _collapse_issues(report, limit):
     return {"issues." + code: {"total": seen[code], "returned": per_code} for code in omitted}
 
 
+def _trim_nested(node, limit, path, record):
+    """Cut every list deeper in the report to `limit` items (id lists inside runs, loops, gaps...)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key != "truncated_lists":
+                _trim_nested(value, limit, f"{path}.{key}" if path else key, record)
+    elif isinstance(node, list):
+        if len(node) > limit:
+            entry = record.setdefault(path, {"total": 0, "returned": limit, "nested": True})
+            entry["total"] = max(entry["total"], len(node))
+            del node[limit:]
+        for item in node:
+            _trim_nested(item, limit, path + "[]", record)
+
+
 def fit_report(report, paths, max_items=DEFAULT_MAX_LIST_ITEMS, max_chars=DEFAULT_MAX_RESPONSE_CHARS):
     """Trim long lists (and repeated issue codes) until the report fits both limits; in place.
 
@@ -80,6 +95,14 @@ def fit_report(report, paths, max_items=DEFAULT_MAX_LIST_ITEMS, max_chars=DEFAUL
         if trimmed:
             work["truncated_lists"] = trimmed
         size = len(json.dumps(work, default=str))
+        if max_chars is not None and size > max_chars:
+            # Nested id lists (segments of a run, gaps of a loop, ...) can still be long.
+            nested = {}
+            _trim_nested(work, limit, "", nested)
+            if nested:
+                trimmed.update(nested)
+                work["truncated_lists"] = trimmed
+                size = len(json.dumps(work, default=str))
         if max_chars is None or size <= max_chars or limit <= 3:
             break
         limit = max(3, limit // 2)

@@ -37,12 +37,37 @@ def estimate_wall_thickness(candidates):
     if diag <= 0:
         return None
     pairs = find_parallel_pairs(selected, [diag * 1e-6, diag * MAX_SEPARATION_SHARE])["pairs"]
+    # Canonical direction per face so "which side" is comparable between a face and its partners.
+    flip = {}
+    for face in selected:
+        g = face.get("geometry") or {}
+        a, b = g.get("start"), g.get("end")
+        if face.get("handles") and isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            flip[face["handles"][0]] = 1 if (dx > 1e-12 or (abs(dx) <= 1e-12 and dy > 0)) else -1
+    neighbours = defaultdict(list)  # handle -> [(separation, side of the partner)]
+    for pair in pairs:
+        first, second = pair["handles"]
+        side = pair["offset_side"] * flip.get(first, 1)
+        neighbours[first].append((pair["separation_mean"], side))
+        neighbours[second].append((pair["separation_mean"], -side))
+
+    def stacked(handle, separation, side):
+        # A face with parallel neighbours at similar distance on BOTH sides belongs to a periodic
+        # stack (hatching, arrays, stairs), not to a wall with two faces.
+        return any(s <= 1.5 * separation and other == -side for s, other in neighbours[handle])
+
     nearest = {}
     for pair in pairs:
         for handle in pair["handles"]:
             if handle not in nearest or pair["separation_mean"] < nearest[handle]["separation_mean"]:
                 nearest[handle] = pair
-    unique = {pair["id"]: pair for pair in nearest.values()}.values()
+    unique = []
+    for pair in {pair["id"]: pair for pair in nearest.values()}.values():
+        first, second = pair["handles"]
+        side = pair["offset_side"] * flip.get(first, 1)
+        if not (stacked(first, pair["separation_mean"], side) or stacked(second, pair["separation_mean"], -side)):
+            unique.append(pair)
     bins = defaultdict(list)
     for pair in unique:
         value = pair["separation_mean"]

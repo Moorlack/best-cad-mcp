@@ -84,3 +84,18 @@ def test_validate_max_response_chars():
     for bad in (0, 1999, True, "60000", 10_000_001):
         with pytest.raises(ValueError):
             validate_max_response_chars(bad)
+
+
+def test_fit_report_also_trims_long_nested_id_lists_when_still_too_big():
+    import json
+
+    from src.cad_understanding.report_limits import fit_report
+
+    report = {"wall_segment_candidates": {"runs": [{"id": "r1", "segment_ids": [f"s{i:05d}" for i in range(5000)]}],
+                                          "openings": {"gaps_without_opening_candidate": [f"g{i:05d}" for i in range(5000)]}},
+              "issues": []}
+    trimmed = fit_report(report, ("wall_segment_candidates.runs",), 200, 20000)
+    assert len(json.dumps(report)) < 21000
+    assert len(report["wall_segment_candidates"]["runs"][0]["segment_ids"]) <= 200
+    assert trimmed["wall_segment_candidates.runs[].segment_ids"]["total"] == 5000
+    assert trimmed["wall_segment_candidates.openings.gaps_without_opening_candidate"]["nested"] is True
