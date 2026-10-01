@@ -1751,6 +1751,16 @@ class TestToolWiring(unittest.TestCase):
 class TestActiveXCallShapes(unittest.TestCase):
     """Verify tools call AutoCAD ActiveX APIs with usable signatures."""
 
+    def setUp(self):
+        # The module-level win32com/pythoncom stubs only apply if src.cad_controller is imported
+        # after them; when another test module imported it first, a reconnect would attach to a
+        # running AutoCAD and replace the mocked application. Never reach a live AutoCAD here.
+        from src.cad_controller import CADController
+        patcher = patch.object(CADController, "_get_active_autocad",
+                               side_effect=RuntimeError("no live AutoCAD in unit tests"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _controller_with_doc(self, doc):
         from src.cad_controller import CADController
         controller = CADController()
@@ -2080,10 +2090,10 @@ class TestActiveXCallShapes(unittest.TestCase):
         self.assertFalse(plotted[0]["use_standard_scale"])
         self.assertEqual(plotted[0]["custom_scale"], 1.0)
         self.assertEqual(plotted[0]["rotation"], 0)
-        layout.SetWindowToPlot.assert_called_once_with(
-            [0.0, 0.0],
-            [420.0, 297.0],
-        )
+        layout.SetWindowToPlot.assert_called_once()
+        # Real win32com wraps the points in VARIANTs; the module-level stub passes plain lists.
+        corners = [list(getattr(p, "value", p)) for p in layout.SetWindowToPlot.call_args.args]
+        self.assertEqual(corners, [[0.0, 0.0], [420.0, 297.0]])
         self.assertEqual(layout.ConfigName, "Original.pc3")
         self.assertEqual(layout.CanonicalMediaName, "ANSI_A_(8.50_x_11.00_Inches)")
         self.assertEqual(layout.PlotType, 0)
