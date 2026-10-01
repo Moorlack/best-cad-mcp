@@ -421,9 +421,9 @@ requires human review. Candidate counts are not counts of physical elements.
         "limitations": [
             "Rule-based naming and primitive geometry only; confidence is not a probability.",
             "Candidates represent source entities, not grouped physical walls or complete building elements.",
-            "Wall faces are paired and openings related to them only when wall_thickness_range is supplied; opening sizes/types, floor assignment and block/xref traversal are not determined.",
+            "Wall faces are paired and openings related to them only when wall_thickness_range is supplied; opening sizes/types and floor assignment are not determined, and only lines and arcs inside blocks are read.",
             "Single horizontal contours (straight or bulged) can have geometric area; bulged contours are flagged valid_curved_contour (exact area, approximate self-intersection test) and are not used for containment relations; floor areas and holes remain unverified.",
-            "Only model space is scanned; paper-space layouts and xref contents are not read, and stories/levels are not inferred.",
+            "Only model space is scanned; xref contents are read only when the scan used include_xrefs, paper-space layouts and per-viewport layer freezing are not applied, and stories/levels are not inferred.",
             "No exterior/interior or load-bearing classification, code checks, or member sizing.",
         ],
     }

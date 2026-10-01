@@ -85,3 +85,16 @@ def test_compact_render_drops_long_paths_and_respects_a_text_budget():
     import json
     assert len(json.dumps(slim["overlay_items"])) <= 30000
     assert slim["compact"]["truncated_overlay_lists"]["overlay_items"]["total"] == 100
+
+
+def test_compact_render_caps_the_visible_handle_list_to_kept_overlay_items():
+    from src.cad_understanding.view_grounding import compact_handles
+    items = [{"overlay_id": f"E{i}", "handle": f"H{i}", "pixel_bbox": [0, 0, i, i]} for i in range(300)]
+    export = {"ok": True, "handles": [f"H{i}" for i in range(300)],
+              "data": {"snapshot": {"overlay_items": items}}}
+    slim = compact_export_for_model(export)
+    assert len(slim["handles"]) == 120 and slim["handles"][0] == "H180"
+    assert slim["handles_truncated"]["total"] == 300
+    vision = compact_handles({"handles": [f"H{i}" for i in range(300)]}, slim["handles"])
+    assert vision["handles"] == slim["handles"]
+    assert compact_handles({"handles": ["a"]}) == {"handles": ["a"]}

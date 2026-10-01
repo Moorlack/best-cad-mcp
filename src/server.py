@@ -5820,6 +5820,7 @@ def render_drawing_view(ctx: Context, filepath: Optional[str] = None,
     image_blocks = _vision_image_blocks(vision_result)
     if compact:
         vision_result = understanding_vision.compact_vision_for_model(vision_result)
+        vision_result = understanding_view.compact_handles(vision_result, export.get("handles") or [])
     # Lead with the export mapping, then retain the vision summary containing
     # the exact observed-image coordinate contract/source_ref template before
     # attaching the rendered image(s). The summary must not disappear merely

@@ -3439,4 +3439,19 @@ def compact_export_for_model(export: Dict[str, Any]) -> Dict[str, Any]:
     }
     compact = dict(export)
     compact["data"] = {**export["data"], "snapshot": slim}
-    return compact
+    kept = [str(item.get("handle")) for item in slim.get("overlay_items") or [] if isinstance(item, dict) and item.get("handle")]
+    return compact_handles(compact, kept)
+
+
+def compact_handles(result: Dict[str, Any], keep: Sequence[str] = ()) -> Dict[str, Any]:
+    """Cap a long top-level handle list (every visible entity) to the overlay items that were kept."""
+    handles = result.get("handles")
+    if not isinstance(handles, list) or len(handles) <= COMPACT_MAX_OVERLAY_ITEMS:
+        return result
+    wanted = set(keep)
+    chosen = [h for h in handles if h in wanted][:COMPACT_MAX_OVERLAY_ITEMS] or handles[:COMPACT_MAX_OVERLAY_ITEMS]
+    out = dict(result)
+    out["handles"] = chosen
+    out["handles_truncated"] = {"total": len(handles), "returned": len(chosen),
+                                "note": "All visible handles are in the mapping JSON (visible_handles)."}
+    return out
