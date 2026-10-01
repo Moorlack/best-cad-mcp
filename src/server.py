@@ -2963,7 +2963,8 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
                       capture_visual_geometry: bool = True,
                       layers: Optional[List[str]] = None,
                       architectural_layers_only: bool = False,
-                      max_seconds: Optional[float] = 30.0) -> str:
+                      max_seconds: Optional[float] = 30.0,
+                      fast: bool = True) -> str:
     """扫描当前图纸中的所有实体并保存到数据库。
 
     这是 AI 理解图纸的核心工具 — 它将 AutoCAD 中的图形对象转换为结构化数据，
@@ -2988,6 +2989,9 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
             (wall/door/window/column/slab/room/grid in English, Russian, Ukrainian, German, ...).
         max_seconds: Stop reading after this many seconds (default 30) and cache what was read as
             an incomplete scan instead of timing out; None disables the limit.
+        fast: (default true) Read LINE/CIRCLE/ARC/plan LWPOLYLINE from one DXF export (handles preserved)
+            and only the other entity kinds over COM; ~40x faster on large drawings with the same cache
+            content; any export failure falls back to reading everything over COM.
     """
     return query_tools.scan_all_entities(
         clear_db=clear_db,
@@ -3002,6 +3006,7 @@ def scan_all_entities(ctx: Context, clear_db: bool = True,
         layers=layers,
         architectural_layers_only=architectural_layers_only,
         max_seconds=max_seconds,
+        fast=fast,
     )
 
 
@@ -5293,9 +5298,9 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
                                   project_id: Optional[str] = None,
                                   reference_lengths: Optional[List[Dict[str, Any]]] = None,
                                   wall_gap_tolerance: Optional[float] = None,
-                                  wall_thickness_range: Optional[List[float]] = None,
+                                  wall_thickness_range: Optional[Union[List[float], str]] = None,
                                   wall_junction_tolerance: Optional[float] = None,
-                                  wall_opening_max_width: Optional[float] = None,
+                                  wall_opening_max_width: Optional[Union[float, str]] = None,
                                   name_aliases: Optional[Dict[str, List[str]]] = None,
                                   max_list_items: Optional[int] = 200,
                                   max_response_chars: Optional[int] = 60000) -> Dict[str, Any]:
@@ -5319,6 +5324,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     in_wall_gap / on_wall_segment / not_on_wall_segment; optional wall_opening_max_width
     (drawing units, needs wall_thickness_range) searches face gaps up to that width.
     Opening size, type and structural role are not determined.
+    wall_thickness_range="auto" estimates the typical wall thickness from nearest parallel wall faces
+    (wall_thickness_estimate); wall_opening_max_width="auto" then uses 12x that thickness.
     Layer/block names are matched by whole words in English, Russian, Ukrainian, transliterated
     Russian and German, splitting CamelCase and separators; optional name_aliases
     {wall|door|window|opening|grid|column|slab_boundary|room_boundary: [words]} adds project words.

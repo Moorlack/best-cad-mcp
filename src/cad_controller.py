@@ -3893,6 +3893,62 @@ class CADController:
                 if offsets:
                     info["mline_style_offsets"] = offsets
 
+    def _export_selection_dxf(self, document, items=None) -> str:
+        """DXF text of the given entities (all of model space when None); handles are preserved."""
+        import shutil
+        import tempfile
+
+        folder = tempfile.mkdtemp(prefix="cad_mcp_fastscan_")
+        selection_set = None
+        try:
+            try:
+                document.SelectionSets.Item("MCP_FAST_SCAN_SS").Delete()
+            except Exception:
+                pass
+            selection_set = document.SelectionSets.Add("MCP_FAST_SCAN_SS")
+            if items is None and int(com_get(document, "ActiveSpace", 1) or 1) == 1:
+                selection_set.Select(5)  # acSelectionSetAll in the active (model) space
+            else:
+                if items is None:
+                    model_space = document.ModelSpace
+                    items = [model_space.Item(i) for i in range(int(model_space.Count))]
+                if items:
+                    selection_set.AddItems(win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, items))
+            target = os.path.join(folder, "fastscan.dxf")
+            document.Export(os.path.splitext(target)[0], "DXF", selection_set)
+            self._wait_for_export_file(target, "DXF")
+            with open(target, "r", encoding="utf-8", errors="replace") as handle:
+                return handle.read()
+        finally:
+            if selection_set is not None:
+                try:
+                    selection_set.Delete()
+                except Exception:
+                    pass
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def _fast_scan_records(self, document, items, limit, read_common, read_geometry, include_bbox):
+        """(records, com_handles) for the first `limit` entities in DXF order."""
+        from src.dxf_entities import read_dxf_entities
+
+        text = self._export_selection_dxf(document, items)
+
+        def visual_path(ocs, bulges, closed, elevation):
+            return self._scan_bulged_polyline_visual_path(ocs, bulges, closed, normal=[0.0, 0.0, 1.0],
+                                                          elevation=elevation)
+
+        records, com_handles, order = read_dxf_entities(text, read_common, read_geometry, include_bbox, visual_path)
+        if not order:
+            raise RuntimeError("The DXF export contained no entities.")
+        keep = order[:limit]
+        kept = set(keep)
+        fast = []
+        for index, handle in enumerate(keep):
+            record = records.get(handle)
+            if record is not None:
+                fast.append({"index": index, **record})
+        return fast, [handle for handle in com_handles if handle in kept]
+
     def _architectural_layer_names(self, document) -> List[str]:
         """Layers whose names contain a known architectural word (see name_profiles)."""
         from src.cad_understanding.name_profiles import build_rules, tokens
@@ -3950,7 +4006,8 @@ class CADController:
                          capture_visual_geometry: bool = False,
                          layers: Optional[List[str]] = None,
                          architectural_layers_only: bool = False,
-                         max_seconds: Optional[float] = None) -> Dict[str, Any]:
+                         max_seconds: Optional[float] = None,
+                         fast: bool = False) -> Dict[str, Any]:
         """Scan model space with a large-drawing friendly default.
 
         minimal: handle/type/layer, optionally bbox. Set capture_visual_geometry
@@ -3995,6 +4052,22 @@ class CADController:
         block_definition_cache = {}
         read_common_properties = level in {DetailLevel.STANDARD, DetailLevel.FULL}
         read_geometry = level in {DetailLevel.STANDARD, DetailLevel.FULL}
+        fast_entities: List[Dict[str, Any]] = []
+        fast_error = None
+        if fast:
+            # Simple kinds come from one DXF export; COM reads only the rest.
+            try:
+                fast_entities, com_handles = self._fast_scan_records(
+                    document, selected_items, count,
+                    read_common_properties or capture_visual_geometry,
+                    read_geometry or capture_visual_geometry, include_bounding_boxes)
+                selected_items = [document.HandleToObject(handle) for handle in com_handles]
+                count = len(selected_items)
+                for record in fast_entities:
+                    type_stats[record["type"]] = type_stats.get(record["type"], 0) + 1
+            except Exception as exc:
+                fast_entities, fast_error = [], str(exc)
+                logger.warning("Fast DXF scan failed, reading every entity over COM: %s", exc)
 
         for i in range(count):
             if deadline is not None and time.monotonic() > deadline:
@@ -4255,7 +4328,12 @@ class CADController:
             except Exception as e:
                 entities.append({"index": i, "error": str(e)})
         self._attach_mline_style_offsets(document, entities)
+        if fast_entities:
+            entities = fast_entities + entities
         return {
+            "scan_source": ("dxf_export+com" if fast_entities else "com") if fast else "com",
+            "fast_scan": ({"from_dxf": len(fast_entities), "from_com": len(entities) - len(fast_entities),
+                           "error": fast_error} if fast else None),
             "entities": entities,
             "total": len(entities),
             "total_available": total_available,

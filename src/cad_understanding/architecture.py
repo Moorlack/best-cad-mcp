@@ -32,6 +32,7 @@ from .report_limits import (
 from .block_contents import expand_block_lines
 from .plan_clusters import find_plan_clusters
 from .quantities import build_quantity_summary
+from .thickness_estimate import estimate_wall_thickness
 from .name_profiles import build_rules, tokens as name_tokens, validate_name_aliases
 from .opening_swings import arc_from_geometry
 from .room_loops import find_room_loops
@@ -101,6 +102,18 @@ def _compatible(category: str, shape: str) -> bool:
     return shape in {"line", "open_polyline", "closed_polyline", "block_reference"}
 
 
+def _validate_wall_parameters(thickness_range, junction_tolerance, max_width):
+    """Validate wall options; "auto" thickness/opening width are estimated from the drawing later."""
+    if thickness_range != "auto":
+        validate_wall_thickness_range(thickness_range)
+    validate_junction_tolerance(junction_tolerance, "wall_junction_tolerance")
+    if max_width == "auto":
+        if thickness_range is None:
+            raise ValueError("wall_opening_max_width requires wall_thickness_range to pair wall faces first.")
+        return
+    _validate_opening_request(thickness_range, max_width)
+
+
 def _validate_opening_request(thickness_range, max_width):
     validate_opening_max_width(max_width)
     if max_width is not None and thickness_range is None:
@@ -116,9 +129,7 @@ Confidence is an ordinal rule label, not a calibrated probability. Even MEDIUM
 requires human review. Candidate counts are not counts of physical elements.
 """
     validate_gap_tolerance(wall_gap_tolerance)
-    validate_wall_thickness_range(wall_thickness_range)
-    validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
-    _validate_opening_request(wall_thickness_range, wall_opening_max_width)
+    _validate_wall_parameters(wall_thickness_range, wall_junction_tolerance, wall_opening_max_width)
     rules = build_rules(name_aliases)
     if drawing_ir.get("schema_version") != "cad-ir/v2":
         raise ValueError("Architectural analysis requires cad-ir/v2.")
@@ -274,6 +285,22 @@ requires human review. Candidate counts are not counts of physical elements.
         if relation["relation"] in {"duplicate", "overlap", "intersection"}:
             issue("wall_line_" + relation["relation"], relation["handles"],
                   "Review the relationship of these wall candidates; no physical wall or repair is inferred.")
+    thickness_estimate = None
+    if wall_thickness_range == "auto" or wall_opening_max_width == "auto":
+        thickness_estimate = estimate_wall_thickness(candidates)
+        if thickness_estimate is None:
+            issue("wall_thickness_not_estimated", [],
+                  "No plausible parallel wall-face pairs were found to estimate the wall thickness; walls were not paired.")
+            wall_thickness_range = None if wall_thickness_range == "auto" else wall_thickness_range
+            wall_opening_max_width = None
+        else:
+            if wall_thickness_range == "auto":
+                wall_thickness_range = thickness_estimate["range_drawing_units"]
+            if wall_opening_max_width == "auto":
+                wall_opening_max_width = thickness_estimate["suggested_opening_max_width_drawing_units"]
+            issue("wall_parameters_estimated", [],
+                  f"Wall thickness ~{thickness_estimate['peak_drawing_units']:.6g} drawing units estimated from "
+                  f"{thickness_estimate['pairs_considered']} face pairs; review wall_thickness_estimate before relying on it.")
     wall_segments = build_wall_segment_candidates(candidates, wall_thickness_range, truncated,
                                                   wall_junction_tolerance)
     if wall_segments["requested"]:
@@ -348,6 +375,7 @@ requires human review. Candidate counts are not counts of physical elements.
         "boundary_checks": boundary_checks,
         "boundary_relations": relations,
         "dimension_scale_check": dimension_scale,
+        "wall_thickness_estimate": thickness_estimate,
         "quantity_summary": build_quantity_summary(wall_segments, candidates),
         "wall_line_diagnostics": wall_lines,
         "wall_networks": build_wall_networks(candidates, wall_lines),
@@ -394,9 +422,7 @@ def analyze_architectural_drawing(entity_limit: int = 10000,
     project = None
     try:
         validate_gap_tolerance(wall_gap_tolerance)
-        validate_wall_thickness_range(wall_thickness_range)
-        validate_junction_tolerance(wall_junction_tolerance, "wall_junction_tolerance")
-        _validate_opening_request(wall_thickness_range, wall_opening_max_width)
+        _validate_wall_parameters(wall_thickness_range, wall_junction_tolerance, wall_opening_max_width)
         validate_name_aliases(name_aliases)
         validate_max_list_items(max_list_items)
         validate_max_response_chars(max_response_chars)

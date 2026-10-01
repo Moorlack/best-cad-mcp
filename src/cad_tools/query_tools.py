@@ -63,7 +63,8 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
                       capture_visual_geometry: bool = True,
                       layers: Optional[List[str]] = None,
                       architectural_layers_only: bool = False,
-                      max_seconds: Optional[float] = 30.0) -> str:
+                      max_seconds: Optional[float] = 30.0,
+                      fast: bool = True) -> str:
     """扫描当前图纸所有实体并保存到数据库。
 
     这是 AI 理解图纸内容的核心工具 — 将 CAD 图形数据转换为结构化数据，
@@ -79,6 +80,7 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
     result = ctrl.scan_model_space(
         max_entities,
         layers=layers, architectural_layers_only=architectural_layers_only, max_seconds=max_seconds,
+        fast=fast,
         detail_level=detail_level,
         include_bounding_boxes=include_bounding_boxes,
         capture_visual_geometry=capture_visual_geometry,
@@ -138,6 +140,11 @@ def scan_all_entities(clear_db: bool = True, max_entities: int = 5000,
             f"(detail_level={result.get('detail_level', detail_level)}, "
             f"truncated={result.get('truncated', False)})."
         )
+    if result.get("fast_scan"):
+        info = result["fast_scan"]
+        lines.append(f"Fast scan: {info['from_dxf']} entities from one DXF export, {info['from_com']} over COM"
+                     + (f" (DXF export failed: {info['error']}; everything was read over COM)" if info.get("error") else "")
+                     + ".")
     if result.get("layer_filter"):
         lines.append("Scan limited to layers: " + ", ".join(result["layer_filter"][:20])
                      + (" ..." if len(result["layer_filter"]) > 20 else "")
