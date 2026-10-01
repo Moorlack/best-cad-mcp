@@ -111,3 +111,10 @@ LINE, CIRCLE, ARC и плановые LWPOLYLINE (нормаль +Z) в тех �
 длина осей, группы толщин и оценка толщины, проёмы и разрывы стен (без символа / только с дугой открывания), замкнутые контуры с чистыми площадями (до 20 крупнейших),
 счётчики основных issue и текст `text` из 6 строк. `summarize_architectural_plan` одним вызовом делает быстрый скан (`scan=true`, слои / `architectural_layers_only`,
 `max_entities`, `max_seconds`), анализ с `wall_thickness_range="auto"`, `wall_opening_max_width="auto"` и возвращает только эту сводку. Все числа — геометрические кандидаты в единицах чертежа.
+
+## Жёсткий лимит ответа (`max_response_chars`)
+
+Если после обрезки списков до 3 элементов (полигоны и issues не режутся) ответ всё ещё больше лимита, крупнейшие детальные разделы
+(значения верхнего уровня и их подразделы, например `wall_segment_candidates.room_loops`, `source.quality`) по очереди заменяются на
+`{"omitted_for_size": true, "chars": n}`; список — в `truncated_lists.omitted_sections`. Никогда не убираются: plan_summary, quantity_summary, issues,
+drawing, coverage, summary, wall_thickness_estimate, limitations. Если и их одних больше лимита — `truncated_lists.response_limit_not_met: true`.

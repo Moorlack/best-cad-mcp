@@ -109,7 +109,36 @@ def test_nested_trimming_keeps_polygons_issues_and_limitations():
         {"polygon_wcs": polygon, "segment_ids": [f"s{i}" for i in range(400)]}]}},
         "issues": [{"code": f"c{i}", "handles": []} for i in range(40)],
         "limitations": [f"limit {i}" for i in range(40)]}
-    fit_report(report, (), 200, 4000)
+    fit_report(report, (), 200, 9000)  # fits once segment_ids are cut, so no section is dropped
     loop = report["wall_segment_candidates"]["room_loops"]["loops"][0]
     assert loop["polygon_wcs"] == polygon and len(loop["segment_ids"]) < 400
     assert len(report["limitations"]) == 40 and len(report["issues"]) == 40
+
+
+def test_hard_limit_drops_largest_detail_sections_but_keeps_summaries():
+    import json
+
+    from src.cad_understanding.report_limits import fit_report
+    big = [[float(i), float(i)] for i in range(400)]  # a polygon is never cut, so lists alone cannot fit
+    report = {"plan_summary": {"text": "digest"}, "quantity_summary": {"walls": {"segment_count": 1}},
+              "issues": [{"code": "x", "handles": []}],
+              "wall_segment_candidates": {"segment_count": 1, "room_loops": {"loops": [{"polygon_wcs": big}]},
+                                          "segments": [{"axis_wcs": big[:50]}]},
+              "source": {"quality": {"blob": "y" * 3000}, "freshness": "consistent_with_scan"}}
+    trimmed = fit_report(report, ARCHITECTURE_LIST_PATHS, 200, 2500)
+    assert len(json.dumps(report)) <= 2500
+    omitted = trimmed["omitted_sections"]
+    assert "wall_segment_candidates.room_loops" in omitted and "source.quality" in omitted
+    assert report["wall_segment_candidates"]["room_loops"] == {"omitted_for_size": True,
+                                                               "chars": omitted["wall_segment_candidates.room_loops"]}
+    assert report["wall_segment_candidates"]["segment_count"] == 1 and report["source"]["freshness"] == "consistent_with_scan"
+    assert report["plan_summary"] == {"text": "digest"} and report["issues"] == [{"code": "x", "handles": []}]
+    assert "response_limit_not_met" not in report["truncated_lists"]
+
+
+def test_hard_limit_reports_when_summaries_alone_are_too_big():
+    from src.cad_understanding.report_limits import fit_report
+    report = {"plan_summary": {"text": "z" * 5000}}
+    trimmed = fit_report(report, ARCHITECTURE_LIST_PATHS, 200, 2000)
+    assert report["plan_summary"]["text"] == "z" * 5000
+    assert trimmed["response_limit_not_met"] is True and report["truncated_lists"]["response_chars"] > 2000

@@ -62,6 +62,11 @@ def _collapse_issues(report, limit):
     return {"issues." + code: {"total": seen[code], "returned": per_code} for code in omitted}
 
 
+# Sections that summarise the report; never dropped to meet max_response_chars.
+SECTION_KEEP_KEYS = {"schema_version", "drawing", "coverage", "summary", "plan_summary", "quantity_summary",
+                     "issues", "truncated_lists", "structural_design_ready", "missing_for_structural_design",
+                     "limitations", "wall_thickness_estimate", "freshness_check"}
+
 NESTED_KEEP_KEYS = {"truncated_lists", "issues", "limitations", "missing_for_structural_design", "warnings"}
 
 
@@ -89,11 +94,43 @@ def _trim_nested(node, limit, path, record):
             _trim_nested(item, limit, path + "[]", record)
 
 
+def _size(node):
+    return len(json.dumps(node, default=str))
+
+
+def _drop_sections(work, max_chars, size):
+    """Last resort: replace the largest detail sections by a size note until the report fits.
+
+    Units are top-level values and the values inside top-level dicts (e.g. wall_segment_candidates.segments),
+    except the summarising sections in SECTION_KEEP_KEYS; small scalars stay. Returns {path: chars}.
+    """
+    dropped = {}
+    while size > max_chars:
+        units = []
+        for key, value in work.items():
+            if key in SECTION_KEEP_KEYS:
+                continue
+            if isinstance(value, dict):
+                units += [((key, sub), _size(v)) for sub, v in value.items()
+                          if isinstance(v, (dict, list)) and not (isinstance(v, dict) and v.get("omitted_for_size"))]
+            elif isinstance(value, list):
+                units.append(((key,), _size(value)))
+        units = [u for u in units if u[1] > 200]
+        if not units:
+            break
+        path, chars = max(units, key=lambda u: u[1])
+        parent = work if len(path) == 1 else work[path[0]]
+        parent[path[-1]] = {"omitted_for_size": True, "chars": chars}
+        dropped[".".join(path)] = chars
+        size = _size(work)
+    return dropped, size
+
+
 def fit_report(report, paths, max_items=DEFAULT_MAX_LIST_ITEMS, max_chars=DEFAULT_MAX_RESPONSE_CHARS):
     """Trim long lists (and repeated issue codes) until the report fits both limits; in place.
 
     max_items caps each list; max_chars caps the serialized report, halving the list limit until it
-    fits (down to 3 items per list). Returns the truncation record, which is also stored under
+    fits (down to 3 items per list), then replacing the largest detail sections by size notes. Returns the truncation record, which is also stored under
     report["truncated_lists"].
     """
     if max_items is None and max_chars is None:
@@ -118,6 +155,13 @@ def fit_report(report, paths, max_items=DEFAULT_MAX_LIST_ITEMS, max_chars=DEFAUL
         if max_chars is None or size <= max_chars or limit <= 3:
             break
         limit = max(3, limit // 2)
+    if max_chars is not None and size > max_chars:
+        dropped, size = _drop_sections(work, max_chars, size)
+        if dropped:
+            trimmed["omitted_sections"] = dropped
+        if size > max_chars:
+            trimmed["response_limit_not_met"] = True
+        work["truncated_lists"] = trimmed
     if trimmed:
         work["truncated_lists"]["response_chars"] = size
     report.clear()

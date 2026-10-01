@@ -5332,6 +5332,8 @@ def analyze_architectural_drawing(ctx: Context, entity_limit: int = 10000,
     Long lists (candidates, segments, pairs, ...) are trimmed to max_list_items (default 200) and, if
     needed, further until the report is at most max_response_chars (default 60000); null disables a
     limit. truncated_lists gives each total, other counts are complete; repeated issue codes are counted.
+    If lists at 3 items still exceed max_response_chars, the largest detail sections are replaced by
+    {omitted_for_size, chars} (truncated_lists.omitted_sections); plan_summary, quantity_summary and issues stay.
     """
     return understanding_architecture.analyze_architectural_drawing(
         entity_limit=entity_limit, project_id=project_id, reference_lengths=reference_lengths,
