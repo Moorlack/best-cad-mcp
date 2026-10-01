@@ -62,14 +62,26 @@ def _collapse_issues(report, limit):
     return {"issues." + code: {"total": seen[code], "returned": per_code} for code in omitted}
 
 
+NESTED_KEEP_KEYS = {"truncated_lists", "issues", "limitations", "missing_for_structural_design", "warnings"}
+
+
+def _is_coordinate_list(items):
+    """Polygons and paths: cutting them would silently change the geometry, so they are kept."""
+    return bool(items) and all(isinstance(item, (int, float)) or (
+        isinstance(item, (list, tuple)) and all(isinstance(v, (int, float)) for v in item)) for item in items)
+
+
 def _trim_nested(node, limit, path, record):
-    """Cut every list deeper in the report to `limit` items (id lists inside runs, loops, gaps...)."""
+    """Cut deeper id/record lists to `limit` items (ids inside runs, loops, gaps...).
+
+    Coordinate lists (polygons, paths) and the report-level issues/limitations are never cut.
+    """
     if isinstance(node, dict):
         for key, value in node.items():
-            if key != "truncated_lists":
+            if key not in NESTED_KEEP_KEYS:
                 _trim_nested(value, limit, f"{path}.{key}" if path else key, record)
     elif isinstance(node, list):
-        if len(node) > limit:
+        if len(node) > limit and not _is_coordinate_list(node):
             entry = record.setdefault(path, {"total": 0, "returned": limit, "nested": True})
             entry["total"] = max(entry["total"], len(node))
             del node[limit:]

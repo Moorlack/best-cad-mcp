@@ -99,3 +99,17 @@ def test_fit_report_also_trims_long_nested_id_lists_when_still_too_big():
     assert len(report["wall_segment_candidates"]["runs"][0]["segment_ids"]) <= 200
     assert trimmed["wall_segment_candidates.runs[].segment_ids"]["total"] == 5000
     assert trimmed["wall_segment_candidates.openings.gaps_without_opening_candidate"]["nested"] is True
+
+
+def test_nested_trimming_keeps_polygons_issues_and_limitations():
+    from src.cad_understanding.report_limits import fit_report
+
+    polygon = [[float(i), float(i * 2)] for i in range(400)]
+    report = {"wall_segment_candidates": {"room_loops": {"loops": [
+        {"polygon_wcs": polygon, "segment_ids": [f"s{i}" for i in range(400)]}]}},
+        "issues": [{"code": f"c{i}", "handles": []} for i in range(40)],
+        "limitations": [f"limit {i}" for i in range(40)]}
+    fit_report(report, (), 200, 4000)
+    loop = report["wall_segment_candidates"]["room_loops"]["loops"][0]
+    assert loop["polygon_wcs"] == polygon and len(loop["segment_ids"]) < 400
+    assert len(report["limitations"]) == 40 and len(report["issues"]) == 40
