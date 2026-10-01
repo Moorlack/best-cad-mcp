@@ -211,7 +211,7 @@ candidate entity and its geometry before changing it.
 | Area | Representative capabilities |
 | --- | --- |
 | 2D drafting | Lines, polylines, curves, circles, regions, hatches, text, dimensions, leaders, tables, layers, blocks, and attributes |
-| Editing | Move, copy, rotate, scale, mirror, offset, trim, extend, fillet, chamfer, arrays, properties, selections, and handle-targeted changes |
+| Editing | Move, copy, rotate, scale, mirror, offset, trim, extend, fillet, chamfer, arrays, properties, PickFirst current-selection inspection, and handle-targeted changes |
 | Drawing understanding | SQLite scan, CAD-IR v2, summaries, semantic objects/graphs, constraints, dimension binding, validation, and repair proposals |
 | Guarded automation | CADPlan variables, dependencies, captured handles, preconditions, postconditions, dry-runs, transactional execution, undo, and rollback attempts |
 | Visual grounding | Clean exports, adaptive numeric overlays, pixel/world mapping, path and polygon grounding, tile crops, and VLM finding reconciliation |
@@ -228,9 +228,9 @@ backward compatibility.
 
 | Profile | Tools | Intended use |
 | --- | ---: | --- |
-| `lean` | 119 | Smallest dependable surface for common drawing and inspection tasks |
-| `core` | 220 | Recommended default for full guarded CAD workflows |
-| `full` | 327 | Every registered tool, including specialized and legacy operations |
+| `lean` | 125 | Smallest dependable surface for common drawing and inspection tasks |
+| `core` | 222 | Recommended default for full guarded CAD workflows |
+| `full` | 333 | Every registered tool, including specialized and legacy operations |
 
 Select a profile with `CAD_MCP_TOOL_PROFILE=lean|core|full`. Fine-grained
 allow/deny controls are also available through

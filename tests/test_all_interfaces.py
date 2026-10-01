@@ -211,6 +211,7 @@ class TestModuleImports(unittest.TestCase):
         expected = [
             'scan_all_entities', 'scan_entities_in_area',
             'select_by_window', 'select_by_crossing', 'select_all',
+            'get_current_selection',
             'highlight_entity', 'highlight_entities',
             'reset_entity_color', 'highlight_query_results',
             'get_entity_statistics',
@@ -605,6 +606,21 @@ class TestMCPToolSchemas(unittest.TestCase):
         self.assertIn("draw_rectangle", result)
         self.assertIn("add_linear_dimension", result)
         self.assertIn("Avoid", result)
+
+    def test_get_current_selection_registered_and_routed(self):
+        schema = self._get_input_schema("get_current_selection")
+        description = self._get_tool_description("get_current_selection")
+
+        self.assertIn("max_entities", schema["properties"])
+        self.assertIn("detail_level", schema["properties"])
+        self.assertIn("PickFirst", description)
+        self.assertIn("without modifying", description)
+
+        recommendation = utility_tools.recommend_cad_tools(
+            "inspect the polyline already selected in AutoCAD"
+        )
+        self.assertIn("get_current_selection", recommendation)
+        self.assertIn("temporary AutoLISP", recommendation)
 
     def test_recommend_cad_tools_routes_complex_drawings_to_advanced_workflows(self):
         result = utility_tools.recommend_cad_tools(
@@ -2768,6 +2784,129 @@ class TestSelectionToolBugs(unittest.TestCase):
         controller.doc = doc
         return controller
 
+    def _selection_controller(self, items):
+        selection = MagicMock()
+        selection.Count = len(items)
+        selection.Item.side_effect = items
+        doc = MagicMock()
+        doc.Name = "selected.dwg"
+        doc.PickfirstSelectionSet = selection
+        return self._controller_with_doc(doc), doc
+
+    def test_current_selection_distinguishes_empty_and_failed_reads(self):
+        cases = [
+            ([], True, False, 0),
+            ([RuntimeError("unreadable")], False, False, 0),
+            ([types.SimpleNamespace(Handle="A"), RuntimeError("unreadable")], True, True, 1),
+            ([types.SimpleNamespace(ObjectName="AcDbLine")], False, False, 0),
+        ]
+        for items, success, partial, returned in cases:
+            with self.subTest(items=items):
+                controller, _ = self._selection_controller(items)
+                # Exercise the failure contract without waiting for COM retries.
+                with patch.object(controller, "_retry_com_call", side_effect=lambda fn: fn()):
+                    result = controller.get_current_selection(detail_level="minimal")
+                self.assertEqual(result["success"], success, result)
+                self.assertEqual(result["partial"], partial, result)
+                self.assertEqual(result["returned"], returned, result)
+                self.assertEqual(len(result["errors"]), len(items) - returned)
+
+    def test_current_selection_count_failure_is_not_empty_success(self):
+        controller, doc = self._selection_controller([])
+        type(doc.PickfirstSelectionSet).Count = PropertyMock(side_effect=RuntimeError("busy"))
+        with patch.object(controller, "_retry_com_call", side_effect=lambda fn: fn()):
+            result = controller.get_current_selection()
+        self.assertFalse(result["success"])
+        self.assertIn("busy", result["message"])
+        doc.PickfirstSelectionSet.Item.assert_not_called()
+
+    def test_current_selection_reports_property_failure_and_keeps_identity(self):
+        for failure in ({"success": False, "message": "property failed"}, RuntimeError("property failed")):
+            with self.subTest(failure=failure):
+                controller, _ = self._selection_controller([types.SimpleNamespace(Handle="A")])
+                with patch.object(controller, "get_entity_properties") as get_properties:
+                    if isinstance(failure, Exception):
+                        get_properties.side_effect = failure
+                    else:
+                        get_properties.return_value = failure
+                    result = controller.get_current_selection(detail_level="full")
+                self.assertTrue(result["success"])
+                self.assertTrue(result["partial"])
+                self.assertEqual(result["entities"][0]["handle"], "A")
+                self.assertNotIn("properties", result["entities"][0])
+                self.assertEqual(result["errors"][0]["stage"], "properties")
+                self.assertIn("property failed", result["errors"][0]["error"])
+
+    def test_current_selection_bounds_polyline_details_but_legacy_read_is_complete(self):
+        entity = types.SimpleNamespace(
+            Handle="A", ObjectName="AcDbPolyline", Layer="0",
+            Coordinates=tuple(float(i) for i in range(20000)),
+            Length=10000.0, Area=0.0, Closed=False,
+        )
+        controller, doc = self._selection_controller([entity])
+        doc.HandleToObject.return_value = entity
+        result = controller.get_current_selection(max_entities=1, detail_level="full")
+        preview = result["entities"][0]
+        self.assertEqual(preview["vertex_count"], 10000)
+        self.assertEqual(len(preview["properties"]["vertices"]), 256)
+        self.assertEqual(preview["properties"]["truncated_fields"]["vertices"], 10000)
+        self.assertTrue(result["details_truncated"])
+        self.assertFalse(result["truncated"])
+        self.assertFalse(result["partial"])
+        legacy = controller.get_entity_properties("A")
+        self.assertEqual(len(legacy["vertices"]), 10000)
+        self.assertNotIn("details_truncated", legacy)
+
+    def test_current_selection_bounds_spline_details_and_preserves_endpoint(self):
+        entity = types.SimpleNamespace(
+            Handle="A", ObjectName="AcDbSpline", Layer="0",
+            FitPoints=tuple(float(i) for i in range(3000)),
+            ControlPoints=tuple(float(i) for i in range(3000)),
+            Knots=tuple(range(1004)), Weights=(1.0,) * 1000,
+        )
+        controller, doc = self._selection_controller([entity])
+        doc.HandleToObject.return_value = entity
+        result = controller.get_current_selection(detail_level="full")
+        props = result["entities"][0]["properties"]
+        for key in ("fit_points", "control_points", "knots", "weights"):
+            self.assertEqual(len(props[key]), 256)
+        self.assertEqual(props["number_of_fit_points"], 1000)
+        self.assertEqual(props["end_point"], [2997.0, 2998.0, 2999.0])
+        self.assertTrue(result["details_truncated"])
+
+    def test_current_selection_bounds_full_text(self):
+        entity = types.SimpleNamespace(
+            Handle="A", ObjectName="AcDbMText", Layer="0",
+            TextString="测" * 10000, Height=1.0, Rotation=0.0,
+        )
+        controller, doc = self._selection_controller([entity])
+        doc.HandleToObject.return_value = entity
+        result = controller.get_current_selection(detail_level="full")
+        props = result["entities"][0]["properties"]
+        self.assertEqual(len(props["text_string"]), 256)
+        self.assertEqual(props["truncated_fields"]["text_string"], 10000)
+        self.assertTrue(result["details_truncated"])
+
+    def test_current_selection_enforces_total_property_budget(self):
+        import json
+        entity = types.SimpleNamespace(
+            Handle="A", ObjectName="AcDbPolyline", Layer="0",
+            Coordinates=tuple(float(i) for i in range(512)),
+            Length=256.0, Area=0.0, Closed=False,
+        )
+        controller, doc = self._selection_controller([entity] * 200)
+        doc.HandleToObject.return_value = entity
+        with patch.object(controller, "get_entity_properties", wraps=controller.get_entity_properties) as get_properties:
+            result = controller.get_current_selection(max_entities=200, detail_level="full")
+        byte_count = sum(len(json.dumps(item["properties"], ensure_ascii=False).encode("utf-8"))
+                         for item in result["entities"] if "properties" in item)
+        self.assertLessEqual(byte_count, 64 * 1024)
+        self.assertLess(get_properties.call_count, 200)
+        self.assertEqual(result["returned"], 200)
+        self.assertTrue(result["details_truncated"])
+        self.assertFalse(result["partial"])
+        self.assertFalse(result["truncated"])
+
     def test_select_all_large_drawing_returns_handle_sample_without_global_selection(self):
         class FakeEntity:
             def __init__(self, handle):
@@ -2810,6 +2949,98 @@ class TestSelectionToolBugs(unittest.TestCase):
         self.assertIn("H1", result)
         self.assertIn("5000", result)
         self.assertIn("truncated", result)
+
+    def test_get_current_selection_reads_pickfirst_without_new_selection_set(self):
+        class FakePolyline:
+            Handle = "5D10"
+            ObjectName = "AcDbPolyline"
+            Layer = "DUCT"
+            Color = 256
+            Linetype = "ByLayer"
+            Coordinates = [0.0, 0.0, 10.0, 0.0, 10.0, 5.0]
+            Closed = False
+            Length = 15.0
+            Area = 0.0
+
+            def GetBoundingBox(self):
+                return (0.0, 0.0, 0.0), (10.0, 5.0, 0.0)
+
+        class FakePickfirstSelectionSet:
+            Count = 1
+
+            def Item(self, index):
+                self.last_index = index
+                return FakePolyline()
+
+        doc = MagicMock()
+        doc.Name = "selected.dwg"
+        doc.PickfirstSelectionSet = FakePickfirstSelectionSet()
+        doc.SelectionSets.Add.side_effect = AssertionError(
+            "current selection must not create a named selection set"
+        )
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_current_selection()
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["source"], "PickfirstSelectionSet")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["entities"][0]["handle"], "5D10")
+        self.assertEqual(result["entities"][0]["vertex_count"], 3)
+        self.assertEqual(result["entities"][0]["length"], 15.0)
+        self.assertFalse(result["entities"][0]["closed"])
+        doc.SelectionSets.Add.assert_not_called()
+
+    def test_get_current_selection_caps_results_and_reports_truncation(self):
+        class FakeEntity:
+            ObjectName = "AcDbLine"
+            Layer = "0"
+
+            def __init__(self, handle):
+                self.Handle = handle
+
+        class FakePickfirstSelectionSet:
+            Count = 3
+
+            def Item(self, index):
+                return FakeEntity(f"H{index}")
+
+        doc = MagicMock()
+        doc.Name = "selected.dwg"
+        doc.PickfirstSelectionSet = FakePickfirstSelectionSet()
+        controller = self._controller_with_doc(doc)
+
+        result = controller.get_current_selection(
+            max_entities=2,
+            detail_level="minimal",
+        )
+
+        self.assertEqual(result["returned"], 2)
+        self.assertTrue(result["truncated"])
+        self.assertEqual(
+            [item["handle"] for item in result["entities"]],
+            ["H0", "H1"],
+        )
+
+    def test_query_tool_get_current_selection_forwards_options(self):
+        expected = {
+            "success": True,
+            "count": 1,
+            "entities": [{"handle": "5D10"}],
+        }
+        with patch.object(query_tools, "ctrl") as mock_ctrl:
+            mock_ctrl.get_current_selection.return_value = expected
+
+            result = query_tools.get_current_selection(
+                max_entities=7,
+                detail_level="full",
+            )
+
+        self.assertIs(result, expected)
+        mock_ctrl.get_current_selection.assert_called_once_with(
+            max_entities=7,
+            detail_level="full",
+        )
 
 
 class TestScanToolBugs(unittest.TestCase):

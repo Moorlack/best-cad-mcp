@@ -252,6 +252,23 @@ def select_all() -> str:
                           truncated=r.get("truncated", False))
 
 
+def get_current_selection(max_entities: int = 20,
+                          detail_level: str = "standard") -> Dict[str, Any]:
+    """Read the current AutoCAD PickFirst selection without changing the DWG.
+
+    Args:
+        max_entities: Maximum selected entities returned (clamped to 1..200).
+        detail_level: minimal, standard, or full. Full details are previews capped
+            at 256 items per variable-length field and 64 KiB total properties.
+
+    The result reports details_truncated for previews and partial for read errors.
+    """
+    return ctrl.get_current_selection(
+        max_entities=max_entities,
+        detail_level=detail_level,
+    )
+
+
 def highlight_entity(handle: str, color: int = 1) -> str:
     """通过句柄高亮显示指定实体（改变其颜色）。
 

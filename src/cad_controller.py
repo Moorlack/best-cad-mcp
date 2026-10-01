@@ -14,6 +14,7 @@ Architecture:
 import win32com.client
 import pythoncom
 import math
+import json
 import logging
 import os
 import shutil
@@ -2606,12 +2607,29 @@ class CADController:
                 "changed": changed}
 
     @require_document
-    def get_entity_properties(self, handle: str) -> Dict[str, Any]:
-        """Get all readable properties of an entity."""
+    def get_entity_properties(self, handle: str, *,
+                              max_detail_items: Optional[int] = None) -> Dict[str, Any]:
+        """Get readable properties; optionally bound variable-length details.
+
+        Existing callers retain complete geometry. Selection inspection requests
+        a bounded preview, with original counts for every truncated field.
+        """
         ent = self._get_entity(handle)
         if ent is None:
             return {"success": False, "message": f"未找到实体: {handle}"}
         try:
+            truncated_fields = {}
+
+            def bounded(value, field, stride=1):
+                if value is None or max_detail_items is None:
+                    return value
+                if value and isinstance(value[0], (list, tuple)):
+                    stride = 1
+                if len(value) > max_detail_items * stride:
+                    truncated_fields[field] = len(value) // stride
+                    return value[:max_detail_items * stride]
+                return value
+
             props = {
                 "handle": com_get(ent, "Handle", ""),
                 "object_name": com_get(ent, "ObjectName", ""),
@@ -2720,6 +2738,7 @@ class CADController:
                 normal = self._scan_point(com_get(ent, "Normal", None))
                 elevation = com_get(ent, "Elevation", 0.0)
                 coordinates = com_get(ent, "Coordinates", None)
+                coordinates = bounded(coordinates, "vertices", coordinate_step)
                 vertices = (
                     self._scan_coordinate_points(coordinates, coordinate_step)
                     if obj_name == "AcDb3dPolyline"
@@ -2740,20 +2759,25 @@ class CADController:
                     "elevation": elevation,
                 })
             elif obj_name == "AcDbSpline":
-                fit_points = self._scan_points(com_get(ent, "FitPoints", None))
-                control_points = self._scan_points(com_get(ent, "ControlPoints", None))
-                knots = list(com_get(ent, "Knots", []) or [])
-                weights = list(com_get(ent, "Weights", []) or [])
+                raw_fit_points = com_get(ent, "FitPoints", None)
+                # Preserve the true endpoint/count even when returning a prefix.
+                last_fit_point = self._scan_points(raw_fit_points[-3:])[-1:] if raw_fit_points else []
+                fit_points = self._scan_points(bounded(raw_fit_points, "fit_points", 3))
+                control_points = self._scan_points(bounded(
+                    com_get(ent, "ControlPoints", None), "control_points", 3
+                ))
+                knots = list(bounded(com_get(ent, "Knots", []) or [], "knots"))
+                weights = list(bounded(com_get(ent, "Weights", []) or [], "weights"))
                 start_tangent = self._scan_point(com_get(ent, "StartTangent", None))
                 end_tangent = self._scan_point(com_get(ent, "EndTangent", None))
                 closed = bool(com_get(ent, "Closed", com_get(ent, "Closed2", False)))
                 props.update({
                     "degree": com_get(ent, "Degree", 0),
-                    "number_of_fit_points": len(fit_points),
+                    "number_of_fit_points": truncated_fields.get("fit_points", len(fit_points)),
                     "is_closed": closed,
                     "closed": closed,
                     "start_point": fit_points[0] if fit_points else None,
-                    "end_point": fit_points[-1] if fit_points else None,
+                    "end_point": last_fit_point[0] if last_fit_point else None,
                     "fit_points": fit_points,
                     "control_points": control_points,
                     "knots": knots,
@@ -2801,6 +2825,12 @@ class CADController:
                     "columns": ent.Columns,
                 })
             props["type"] = obj_name
+            if max_detail_items is not None:
+                for key, value in list(props.items()):
+                    if isinstance(value, str):
+                        props[key] = bounded(value, key)
+                props["details_truncated"] = bool(truncated_fields)
+                props["truncated_fields"] = truncated_fields
             return props
         except Exception as e:
             return {"success": False, "message": f"获取属性失败: {e}", "handle": handle}
@@ -3052,6 +3082,154 @@ class CADController:
             "name": ss_name,
             "selected": True,
             "truncated": ss.Count > len(handles),
+        }
+
+    @require_document
+    def get_current_selection(self, max_entities: int = 20,
+                              detail_level: str = DetailLevel.STANDARD) -> Dict[str, Any]:
+        """Read AutoCAD's current PickFirst (implied) selection without modifying it.
+
+        ``minimal`` returns identity fields only, ``standard`` adds compact common
+        geometry, and ``full`` also includes the existing detailed property
+        snapshot (256 items per variable-length detail, 64 KiB total property
+        payload). ``details_truncated`` marks previews; ``partial`` marks read
+        errors. An empty selection succeeds; an entirely unreadable one fails.
+        """
+        level = str(detail_level or DetailLevel.STANDARD).strip().lower()
+        allowed_levels = {
+            DetailLevel.MINIMAL,
+            DetailLevel.STANDARD,
+            DetailLevel.FULL,
+        }
+        if level not in allowed_levels:
+            return {
+                "success": False,
+                "message": (
+                    "detail_level must be one of: minimal, standard, full"
+                ),
+            }
+
+        limit = min(max(int(max_entities), 1), 200)
+        selection = com_get(self.doc, "PickfirstSelectionSet", None)
+        if selection is None:
+            return {
+                "success": False,
+                "message": "AutoCAD did not expose PickfirstSelectionSet.",
+            }
+
+        try:
+            # A failed Count read must not masquerade as an empty selection.
+            count = int(self._retry_com_call(lambda: selection.Count))
+        except Exception as exc:
+            return {"success": False, "message": f"Could not read selection count: {exc}"}
+        entities: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+        property_budget = 64 * 1024
+        details_truncated = False
+
+        for index in range(min(count, limit)):
+            try:
+                ent = self._retry_com_call(
+                    lambda item_index=index: selection.Item(item_index)
+                )
+                handle = str(com_get(ent, "Handle", "") or "")
+                if not handle:
+                    raise ValueError("Could not read the selected entity handle")
+                object_name = str(com_get(ent, "ObjectName", "Unknown") or "Unknown")
+                info: Dict[str, Any] = {
+                    "index": index,
+                    "handle": handle,
+                    "object_name": object_name,
+                    "name": object_name.replace("AcDb", ""),
+                    "layer": str(com_get(ent, "Layer", "0") or "0"),
+                }
+
+                if level in {DetailLevel.STANDARD, DetailLevel.FULL}:
+                    info["color"] = com_get(ent, "Color", 256)
+                    info["linetype"] = com_get(ent, "Linetype", "ByLayer")
+                    bbox = self._scan_bbox(ent)
+                    if bbox is not None:
+                        info["bbox"] = bbox
+
+                    if object_name == "AcDbLine":
+                        info["start"] = self._scan_point(
+                            com_get(ent, "StartPoint", None)
+                        )
+                        info["end"] = self._scan_point(
+                            com_get(ent, "EndPoint", None)
+                        )
+                    elif object_name in {"AcDbCircle", "AcDbArc"}:
+                        info["center"] = self._scan_point(
+                            com_get(ent, "Center", None)
+                        )
+                        info["radius"] = float(com_get(ent, "Radius", 0.0) or 0.0)
+                    elif "Polyline" in object_name:
+                        coordinate_step = 2 if object_name == "AcDbPolyline" else 3
+                        coordinates = com_get(ent, "Coordinates", []) or []
+                        info["vertex_count"] = len(coordinates) // coordinate_step
+                        info["closed"] = bool(com_get(ent, "Closed", False))
+                    elif object_name in {"AcDbText", "AcDbMText"}:
+                        info["text"] = str(
+                            com_get(ent, "TextString", "") or ""
+                        )[:500]
+                    elif object_name == "AcDbBlockReference":
+                        info["block_name"] = str(
+                            com_get(
+                                ent,
+                                "EffectiveName",
+                                com_get(ent, "Name", ""),
+                            ) or ""
+                        )
+
+                    for key, property_name in (
+                        ("length", "Length"),
+                        ("area", "Area"),
+                    ):
+                        value = com_get(ent, property_name, None)
+                        if value is not None:
+                            try:
+                                info[key] = float(value)
+                            except (TypeError, ValueError, OverflowError):
+                                pass
+
+                if level == DetailLevel.FULL and handle:
+                    if property_budget == 0:
+                        info["details_truncated"] = True
+                        details_truncated = True
+                    else:
+                        try:
+                            properties = self.get_entity_properties(handle, max_detail_items=256)
+                            if properties.get("success", True) is False:
+                                raise ValueError(properties.get("message", "Could not read properties"))
+                            size = len(json.dumps(properties, ensure_ascii=False).encode("utf-8"))
+                            if size > property_budget:
+                                property_budget = 0
+                                info["details_truncated"] = True
+                            else:
+                                property_budget -= size
+                                info["properties"] = properties
+                                info["details_truncated"] = properties.get("details_truncated", False)
+                            details_truncated |= info["details_truncated"]
+                        except Exception as exc:
+                            errors.append({"index": index, "handle": handle,
+                                           "stage": "properties", "error": str(exc)})
+
+                entities.append(info)
+            except Exception as exc:
+                errors.append({"index": index, "error": str(exc)})
+
+        return {
+            "success": count == 0 or bool(entities),
+            "partial": bool(entities) and bool(errors),
+            "source": "PickfirstSelectionSet",
+            "document": str(com_get(self.doc, "Name", "") or ""),
+            "count": count,
+            "returned": len(entities),
+            "truncated": count > limit,
+            "details_truncated": details_truncated,
+            "detail_level": level,
+            "entities": entities,
+            "errors": errors,
         }
 
     # ── Layer Management ───────────────────────────────────
