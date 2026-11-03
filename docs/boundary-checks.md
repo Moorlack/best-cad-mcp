@@ -46,7 +46,7 @@ MCP-TEST-SLAB-20260922:
 
 Объектов стало 30 вместо 27. Контуры оставлены для повторной проверки после
 Repair; DWG не сохранялся. Само чтение/анализ не изменило Saved=false/DBMOD=5.
-Локальные скрипт и результаты: ../.verification/check-live-boundaries.py и .json;
+Локальные скрипт и результаты: ../../Archive/verification/check-live-boundaries.py и .json;
 они не публикуются в fork. Этот тест не проверяет инженерную трактовку контуров.
 
 После обновления клиента: scan_all_entities с clear_annotations=false,

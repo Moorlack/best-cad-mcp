@@ -24,4 +24,4 @@ in BACKLOG.md and reuse of general CAD capabilities in other workflows/plugins.
   `$script:InstallerVersion` lines together on every change; a change without a
   bump never reaches existing copies. Keep the payload parseable and the file's
   bytes unchanged by Git (`.gitattributes`). Keep the user's distribution copy
-  `../MCP AutoCAD/SetupMCP AutoCAD.cmd` identical when it exists.
+  `../../Installers/AutoCAD/SetupMCP AutoCAD.cmd` identical when it exists.
