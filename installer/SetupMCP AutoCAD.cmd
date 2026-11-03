@@ -4,10 +4,10 @@ chcp 65001 >nul
 set "AECMB_PRODUCT=AutoCAD"
 set "AECMB_TITLE=AutoCAD MCP setup"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title %AECMB_TITLE% v2026.11.03.02
+title %AECMB_TITLE% v2026.11.03.03
 
 echo.
-echo %AECMB_TITLE% v2026.11.03.02
+echo %AECMB_TITLE% v2026.11.03.03
 echo This script configures only the selected product without removing or replacing unrelated MCP servers.
 echo.
 
@@ -69,7 +69,7 @@ $StepNumber = 0
 $script:BridgeProduct = if ($env:AECMB_PRODUCT -eq 'Revit') { 'Revit' } else { 'AutoCAD' }
 $script:BridgeProductLabel = $script:BridgeProduct
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.11.03.02'
+$script:InstallerVersion = '2026.11.03.03'
 if ($script:BridgeProduct -eq 'Revit') {
     $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/aec-model-bridge/main/installer/SetupMCP%20Revit.cmd'
     # Installed server checkout, its maintained fork and the server process marker.
@@ -1433,12 +1433,12 @@ function Assert-MaintainedAecFork {
         },
         @{
             Path = 'packages\mcp-server-revit\src\revit_mcp_server\config.py'
-            Pattern = 'target_version:\s*str\s*\|\s*None'
+            Pattern = 'host_version:\s*str\s*\|\s*None'
             Feature = 'version-specific Revit routing configuration'
         },
         @{
             Path = 'packages\mcp-server-revit\src\revit_mcp_server\bridge\discovery.py'
-            Pattern = 'version_key\s*=\s*f"\{info\.provider_id\}-\{info\.host_version\}"'
+            Pattern = 'def select_switch\('
             Feature = 'simultaneous Revit version discovery'
         },
         @{
@@ -1851,6 +1851,7 @@ function Remove-BridgeEnvironmentVariables {
         'MCP_REVIT_ALLOW_PYTHON_HOST',
         'MCP_REVIT_ENABLE_USER_MODULES',
         'MCP_REVIT_TARGET_VERSION',
+        'MCP_REVIT_HOST_VERSION',
         'MCP_REVIT_WORKSPACE_DIR',
         'MCP_REVIT_ALLOWED_DIRECTORIES'
     )) {
@@ -1965,7 +1966,7 @@ function Configure-Codex {
                 '--env', 'MCP_REVIT_APPROVAL_MODE=auto',
                 '--env', 'MCP_REVIT_ALLOW_PYTHON_HOST=true',
                 '--env', 'MCP_REVIT_ENABLE_USER_MODULES=true',
-                '--env', "MCP_REVIT_TARGET_VERSION=$version",
+                '--env', "MCP_REVIT_HOST_VERSION=$version",
                 '--env', "MCP_REVIT_WORKSPACE_DIR=$Workspace",
                 '--env', "MCP_REVIT_ALLOWED_DIRECTORIES=$Allowed",
                 '--',
@@ -2067,7 +2068,7 @@ function Configure-Antigravity {
             command = $PythonExe
             args = [object[]]@('-m', 'revit_mcp_server.mcp_server')
             env = [pscustomobject]@{
-                MCP_REVIT_MODE = 'bridge'; MCP_REVIT_APPROVAL_MODE = 'auto'; MCP_REVIT_ALLOW_PYTHON_HOST = 'true'; MCP_REVIT_ENABLE_USER_MODULES = 'true'; MCP_REVIT_TARGET_VERSION = $version; MCP_REVIT_WORKSPACE_DIR = $Workspace; MCP_REVIT_ALLOWED_DIRECTORIES = $Allowed
+                MCP_REVIT_MODE = 'bridge'; MCP_REVIT_APPROVAL_MODE = 'auto'; MCP_REVIT_ALLOW_PYTHON_HOST = 'true'; MCP_REVIT_ENABLE_USER_MODULES = 'true'; MCP_REVIT_HOST_VERSION = $version; MCP_REVIT_WORKSPACE_DIR = $Workspace; MCP_REVIT_ALLOWED_DIRECTORIES = $Allowed
             }
         }) -Force
     }
@@ -2218,7 +2219,7 @@ function Configure-Claude {
                     MCP_REVIT_APPROVAL_MODE = 'auto'
                     MCP_REVIT_ALLOW_PYTHON_HOST = 'true'
                     MCP_REVIT_ENABLE_USER_MODULES = 'true'
-                    MCP_REVIT_TARGET_VERSION = $version
+                    MCP_REVIT_HOST_VERSION = $version
                     MCP_REVIT_WORKSPACE_DIR = $Workspace
                     MCP_REVIT_ALLOWED_DIRECTORIES = $Allowed
                 }
@@ -2669,274 +2670,8 @@ try {
     Write-InstalledProductVersion -GitExe $gitExe
 
     Start-Step `
-        -Title 'Verify the Revit transaction fix' `
-        -Explanation 'The maintained fork replaces the recursive transaction factory that can freeze Revit during a modifying tool call.'
-
-    $factoryFile = Join-Path $sourceRoot 'packages\revit-bridge-addin\src\Bridge\BridgeCommandFactory.cs'
-    if (-not (Test-Path -LiteralPath $factoryFile)) {
-        throw "BridgeCommandFactory.cs was not found: $factoryFile"
-    }
-
-    $factorySource = Get-Content -LiteralPath $factoryFile -Raw -ErrorAction Stop
-    $brokenLine = 'return BridgeCommandFactory.CreateTransaction(doc, txName);'
-    $fixedLine = 'return new Transaction(doc, txName);'
-
-    if ($factorySource.Contains($brokenLine)) {
-        $factorySource = $factorySource.Replace($brokenLine, $fixedLine)
-        [System.IO.File]::WriteAllText(
-            $factoryFile,
-            $factorySource,
-            [System.Text.UTF8Encoding]::new($false)
-        )
-        Write-Ok 'The recursive transaction factory was fixed.'
-    }
-    elseif ($factorySource.Contains($fixedLine)) {
-        Write-Ok 'The transaction factory is already fixed.'
-    }
-    else {
-        throw 'The expected transaction factory code was not found. The upstream source has changed and must be reviewed.'
-    }
-
-    $appFile = Join-Path $sourceRoot 'packages\revit-bridge-addin\src\Bridge\App.cs'
-    if (-not (Test-Path -LiteralPath $appFile)) {
-        throw "App.cs was not found: $appFile"
-    }
-
-    $appSource = Get-Content -LiteralPath $appFile -Raw -ErrorAction Stop
-
-    # Revit 2025.4 can crash when Manage Links opens after the bridge WebView2
-    # pane has initialized. The MCP server and ExternalEvent do not need this UI;
-    # keep them active but do not register/load the WebView2 pane in Revit 2025.
-    $panelRegistrationPattern = '(?ms)^\s{16}try\s*\{\s*BridgePanelProvider\.Register\(application\);\s*\}\s*catch \(Exception ex\)\s*\{\s*Log\.Error\(ex, "Bridge started, but the AEC Model Bridge dockable pane could not be registered"\);\s*\}'
-    $panelRegistrationReplacement = @'
-                if (string.Equals(RevitVersion, "2025", StringComparison.Ordinal))
-                {
-                    Log.Information("Disabled AEC Model Bridge WebView2 dockable pane for Revit 2025 Manage Links stability");
-                }
-                else
-                {
-                    try
-                    {
-                        BridgePanelProvider.Register(application);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error(ex, "Bridge started, but the AEC Model Bridge dockable pane could not be registered");
-                    }
-                }
-'@
-    $panelHubPattern = '(?ms)^\s{16}try\s*\{\s*// Fire-and-forget: checks/launches in the background, never blocks startup\.\s*_hubLauncher = new PanelHubLauncher\(\);\s*_hubLauncher\.EnsureRunning\(\);\s*\}\s*catch \(Exception ex\)\s*\{\s*Log\.Error\(ex, "Bridge started, but the panel hub could not be launched"\);\s*\}'
-    $panelHubReplacement = @'
-                if (!string.Equals(RevitVersion, "2025", StringComparison.Ordinal))
-                {
-                    try
-                    {
-                        // Fire-and-forget: checks/launches in the background, never blocks startup.
-                        _hubLauncher = new PanelHubLauncher();
-                        _hubLauncher.EnsureRunning();
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error(ex, "Bridge started, but the panel hub could not be launched");
-                    }
-                }
-'@
-
-    if ($appSource -match $panelRegistrationPattern) {
-        $appSource = [regex]::Replace($appSource, $panelRegistrationPattern, $panelRegistrationReplacement, 1)
-    }
-    elseif ($appSource -notmatch 'Disabled AEC Model Bridge WebView2 dockable pane for Revit 2025 Manage Links stability') {
-        throw 'The dockable-pane implementation changed and the Revit 2025 UI isolation hotfix could not be applied safely.'
-    }
-
-    if ($appSource -match $panelHubPattern) {
-        $appSource = [regex]::Replace($appSource, $panelHubPattern, $panelHubReplacement, 1)
-    }
-    elseif ($appSource -notmatch 'if \(!string\.Equals\(RevitVersion, "2025", StringComparison\.Ordinal\)\)') {
-        throw 'The panel-hub implementation changed and the Revit 2025 UI isolation hotfix could not be applied safely.'
-    }
-    [System.IO.File]::WriteAllText($appFile, $appSource, [System.Text.UTF8Encoding]::new($false))
-    Write-Ok 'The Revit 2025 WebView2 panel was isolated from Manage Links.'
-
-    Start-Step `
-        -Title 'Verify simultaneous Revit versions' `
-        -Explanation 'The maintained fork resolves the Contract v2 registry entry for each selected Revit version instead of overwriting another running connection.'
-
-    $configFile = Join-Path $sourceRoot 'packages\mcp-server-revit\src\revit_mcp_server\config.py'
-    $discoveryFile = Join-Path $sourceRoot 'packages\mcp-server-revit\src\revit_mcp_server\bridge\discovery.py'
-    $providerFile = Join-Path $sourceRoot 'packages\mcp-server-revit\src\revit_mcp_server\providers\revit.py'
-
-    foreach ($requiredFile in @($configFile, $discoveryFile, $providerFile)) {
-        if (-not (Test-Path -LiteralPath $requiredFile)) {
-            throw "Required multi-version source file was not found: $requiredFile"
-        }
-    }
-
-    $configSource = Get-Content -LiteralPath $configFile -Raw -ErrorAction Stop
-    if ($configSource -notmatch 'target_version:\s*str\s*\|\s*None') {
-        $configSource = $configSource.Replace(
-            '    bridge_url: str | None = Field(default=None)',
-            "    bridge_url: str | None = Field(default=None)`r`n    target_version: str | None = Field(default=None)"
-        )
-        [System.IO.File]::WriteAllText($configFile, $configSource, [System.Text.UTF8Encoding]::new($false))
-    }
-
-    $discoverySource = Get-Content -LiteralPath $discoveryFile -Raw -ErrorAction Stop
-    $oldDiscoveryBlock = @'
-            # Prefer the most recently started switch for a given provider
-            if info.provider_id in switches:
-                existing = switches[info.provider_id]
-                try:
-                    existing_start = datetime.fromisoformat(existing.started_at.replace('Z', '+00:00'))
-                    new_start = datetime.fromisoformat(info.started_at.replace('Z', '+00:00'))
-                    if new_start > existing_start:
-                        switches[info.provider_id] = info
-                except ValueError:
-                    switches[info.provider_id] = info
-            else:
-                switches[info.provider_id] = info
-'@
-    $newDiscoveryBlock = @'
-            # Keep one entry per host version so multiple Revit versions can run
-            # simultaneously. Preserve the provider-only key as the latest instance
-            # for backward compatibility with clients that do not select a version.
-            version_key = f"{info.provider_id}-{info.host_version}"
-
-            if version_key in switches:
-                existing = switches[version_key]
-                try:
-                    existing_start = datetime.fromisoformat(existing.started_at.replace('Z', '+00:00'))
-                    new_start = datetime.fromisoformat(info.started_at.replace('Z', '+00:00'))
-                    if new_start > existing_start:
-                        switches[version_key] = info
-                except ValueError:
-                    switches[version_key] = info
-            else:
-                switches[version_key] = info
-
-            if info.provider_id in switches:
-                existing = switches[info.provider_id]
-                try:
-                    existing_start = datetime.fromisoformat(existing.started_at.replace('Z', '+00:00'))
-                    new_start = datetime.fromisoformat(info.started_at.replace('Z', '+00:00'))
-                    if new_start > existing_start:
-                        switches[info.provider_id] = info
-                except ValueError:
-                    switches[info.provider_id] = info
-            else:
-                switches[info.provider_id] = info
-'@
-
-    if ($discoverySource.Contains($oldDiscoveryBlock)) {
-        $discoverySource = $discoverySource.Replace($oldDiscoveryBlock, $newDiscoveryBlock)
-        [System.IO.File]::WriteAllText($discoveryFile, $discoverySource, [System.Text.UTF8Encoding]::new($false))
-    }
-    elseif ($discoverySource -notmatch 'version_key\s*=\s*f"\{info\.provider_id\}-\{info\.host_version\}"') {
-        throw 'The discovery implementation changed and the multi-version patch could not be applied safely.'
-    }
-
-    $providerSource = Get-Content -LiteralPath $providerFile -Raw -ErrorAction Stop
-    $oldProviderBlock = @'
-            if not url:
-                if "revit" in switches:
-                    url = switches["revit"].endpoint
-                    token = switches["revit"].session_token
-                    logger.info("Resolved Revit switch from registry: %s", url)
-                else:
-'@
-    $newProviderBlock = @'
-            if not url:
-                target_version = getattr(config, "target_version", None)
-                switch_key = f"revit-{target_version}" if target_version else "revit"
-
-                if switch_key in switches:
-                    url = switches[switch_key].endpoint
-                    token = switches[switch_key].session_token
-                    logger.info(
-                        "Resolved Revit switch from registry: version=%s endpoint=%s",
-                        target_version or "latest",
-                        url,
-                    )
-                else:
-'@
-
-    if ($providerSource.Contains($oldProviderBlock)) {
-        $providerSource = $providerSource.Replace($oldProviderBlock, $newProviderBlock)
-        [System.IO.File]::WriteAllText($providerFile, $providerSource, [System.Text.UTF8Encoding]::new($false))
-    }
-    elseif ($providerSource -notmatch 'switch_key\s*=\s*f"revit-\{target_version\}"') {
-        throw 'The Revit provider implementation changed and the multi-version patch could not be applied safely.'
-    }
-
-    Write-Ok 'Simultaneous Revit version routing was enabled.'
-
-    Start-Step `
-        -Title 'Verify dynamic Revit bridge discovery' `
-        -Explanation 'The maintained fork refreshes Contract v2 before Revit requests, so an AI client can start before Revit and connect when it opens later.'
-
-    $providerSource = Get-Content -LiteralPath $providerFile -Raw -ErrorAction Stop
-    if ($providerSource -notmatch 'def _refresh_bridge_from_registry\(self\)') {
-        $dynamicDiscoveryMethod = @'
-    def _refresh_bridge_from_registry(self) -> None:
-        """Adopt the live, version-specific Contract v2 endpoint when Revit starts after this MCP process."""
-        if self.mode != BridgeMode.bridge or self.bridge_url:
-            return
-
-        from ..bridge.discovery import discover_switches
-        switches = discover_switches()
-        target_version = getattr(config, "target_version", None)
-        switch_key = f"revit-{target_version}" if target_version else "revit"
-        switch = switches.get(switch_key)
-        if not switch:
-            return
-
-        current_url = getattr(self._bridge, "base_url", "").rstrip("/")
-        current_token = getattr(self._bridge, "token", None)
-        endpoint = switch.endpoint.rstrip("/")
-        if current_url == endpoint and current_token == switch.session_token:
-            return
-
-        logger.info("Refreshing Revit bridge from registry: version=%s endpoint=%s", target_version or "latest", endpoint)
-        bridge = BridgeClient(endpoint, token=switch.session_token)
-        if hasattr(bridge, "initialize"):
-            try:
-                bridge.initialize()
-            except Exception as e:
-                logger.warning("Newly discovered Revit bridge is not ready yet: %s", e)
-                return
-        self._bridge = bridge
-
-'@
-        $providerMarker = '    def get_capabilities(self) -> List[ProviderTool]:'
-        if (-not $providerSource.Contains($providerMarker)) {
-            throw 'The Revit provider implementation changed and the dynamic discovery patch could not be applied safely.'
-        }
-        $providerSource = $providerSource.Replace($providerMarker, $dynamicDiscoveryMethod + $providerMarker)
-    }
-
-    $healthMarker = "        if self.mode == BridgeMode.bridge:`r`n            try:"
-    $healthReplacement = "        if self.mode == BridgeMode.bridge:`r`n            self._refresh_bridge_from_registry()`r`n            try:"
-    if ($providerSource.Contains($healthMarker)) {
-        $providerSource = $providerSource.Replace($healthMarker, $healthReplacement)
-    }
-    elseif ($providerSource -notmatch 'async def check_health[\s\S]{0,250}_refresh_bridge_from_registry\(\)') {
-        throw 'The Revit health implementation changed and the dynamic discovery call could not be applied safely.'
-    }
-
-    $executeMarker = "    async def execute_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:`r`n        # Check path parameters for workspace compliance"
-    $executeReplacement = "    async def execute_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:`r`n        if self.mode == BridgeMode.bridge:`r`n            self._refresh_bridge_from_registry()`r`n`r`n        # Check path parameters for workspace compliance"
-    if ($providerSource.Contains($executeMarker)) {
-        $providerSource = $providerSource.Replace($executeMarker, $executeReplacement)
-    }
-    elseif ($providerSource -notmatch 'async def execute_tool[\s\S]{0,250}_refresh_bridge_from_registry\(\)') {
-        throw 'The Revit execution implementation changed and the dynamic discovery call could not be applied safely.'
-    }
-    [System.IO.File]::WriteAllText($providerFile, $providerSource, [System.Text.UTF8Encoding]::new($false))
-    Write-Ok 'Dynamic Revit bridge discovery was enabled.'
-
-    Start-Step `
         -Title 'Verify the maintained AEC fork' `
-        -Explanation 'The script confirms that the downloaded source includes the agreed Revit fixes and the bundled Codex BIM skill.'
+        -Explanation 'The fork carries the agreed Revit fixes (transaction recursion, Revit 2025 Manage Links stability, per-version routing, connecting to a Revit opened later) and the bundled BIM skills; the script only confirms they are present.'
 
     Assert-MaintainedAecFork -SourceRoot $sourceRoot
 
