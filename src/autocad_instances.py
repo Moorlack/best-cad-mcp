@@ -7,8 +7,8 @@ instances the choice must be explicit: a pinned process id, a drawing path, or
 the only instance running. Otherwise selection fails closed.
 """
 
+import ntpath
 import time
-import os
 
 
 class AmbiguousAutoCADInstances(RuntimeError):
@@ -16,7 +16,8 @@ class AmbiguousAutoCADInstances(RuntimeError):
 
 
 def _norm(path):
-    return os.path.normcase(os.path.normpath(str(path))) if path else ""
+    # AutoCAD reports Windows paths; ntpath compares them the same way on any OS (CI runs on Linux).
+    return ntpath.normcase(ntpath.normpath(str(path))) if path else ""
 
 
 def choose_instance(instances, pinned_pid=None, document_path=None, process_pids=None):
@@ -46,7 +47,7 @@ def choose_instance(instances, pinned_pid=None, document_path=None, process_pids
     if len(instances) + len(unreachable) <= 1:
         return instances[0] if instances else None
     listing = "; ".join(
-        [f"pid {i.get('pid')}: {', '.join(os.path.basename(d) for d in i.get('documents', [])) or 'no documents'}"
+        [f"pid {i.get('pid')}: {', '.join(ntpath.basename(d) for d in i.get('documents', [])) or 'no documents'}"
          for i in instances]
         + [f"pid {pid}: not reachable through COM right now" for pid in unreachable])
     raise AmbiguousAutoCADInstances(
