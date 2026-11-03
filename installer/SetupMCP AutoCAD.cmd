@@ -3,10 +3,10 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "AECMB_PRODUCT=AutoCAD"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title AutoCAD MCP setup v2026.10.01.01
+title AutoCAD MCP setup v2026.11.03.01
 
 echo.
-echo AutoCAD MCP setup v2026.10.01.01
+echo AutoCAD MCP setup v2026.11.03.01
 echo This script configures only the selected product without removing or replacing unrelated MCP servers.
 echo.
 
@@ -67,7 +67,7 @@ $StepNumber = 0
 $script:BridgeProduct = 'AutoCAD'
 $script:BridgeProductLabel = 'AutoCAD'
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.10.01.01'
+$script:InstallerVersion = '2026.11.03.01'
 $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20AutoCAD.cmd'
 
 function Write-Ok([string]$Message) {
@@ -317,6 +317,16 @@ function Get-ClaudeConfigPaths {
                 $paths.Add(
                     (Join-Path $_.FullName 'LocalCache\Roaming\Claude\claude_desktop_config.json')
                 )
+            }
+    }
+
+    # Newer Claude Desktop builds (4.x, Store package) keep their data, including the
+    # claude_desktop_config.json they actually read, in %LOCALAPPDATA%\Claude-Data\claude_<package id>.
+    $claudeDataRoot = Join-Path $env:LOCALAPPDATA 'Claude-Data'
+    if (Test-Path -LiteralPath $claudeDataRoot) {
+        Get-ChildItem -LiteralPath $claudeDataRoot -Directory -Filter 'claude_*' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $paths.Add((Join-Path $_.FullName 'claude_desktop_config.json'))
             }
     }
 
