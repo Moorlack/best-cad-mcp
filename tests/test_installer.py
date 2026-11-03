@@ -32,7 +32,9 @@ def test_excel_installer_versions_are_in_sync():
     text = EXCEL_INSTALLER.read_text(encoding="utf-8")
     shown, variable = _versions(text)
     assert len(shown) == 1 and variable == list(shown)
-    assert "raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20Excel.cmd" in text
+    # This copy is only the hand-over release for installers that still check best-cad-mcp;
+    # the Excel installer itself is maintained in the Moorlack/Excel-mcp-server fork.
+    assert "raw.githubusercontent.com/Moorlack/Excel-mcp-server/main/installer/SetupMCP%20Excel.cmd" in text
     assert '\r' not in EXCEL_INSTALLER.read_bytes().decode("utf-8")
 
 

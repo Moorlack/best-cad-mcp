@@ -4,10 +4,10 @@ chcp 65001 >nul
 set "AECMB_PRODUCT=Excel"
 set "AECMB_TITLE=ExcelMcp setup"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title %AECMB_TITLE% v2026.11.03.02
+title %AECMB_TITLE% v2026.11.03.03
 
 echo.
-echo %AECMB_TITLE% v2026.11.03.02
+echo %AECMB_TITLE% v2026.11.03.03
 echo This script installs only the ExcelMcp bridge and preserves unrelated MCP servers.
 echo.
 
@@ -54,8 +54,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $StepNumber = 0
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.11.03.02'
-$script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20Excel.cmd'
+$script:InstallerVersion = '2026.11.03.03'
+# Published in the Moorlack/Excel-mcp-server fork (installer only; the server comes from kousunh/excel-mcp-server).
+$script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/Excel-mcp-server/main/installer/SetupMCP%20Excel.cmd'
 $BridgeName = 'excel-mcp'
 $InstallRoot = Join-Path $env:ProgramData 'ExcelMcp'
 $SourceRoot = Join-Path $InstallRoot 'source'
