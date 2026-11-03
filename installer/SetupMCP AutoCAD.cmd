@@ -2,11 +2,12 @@
 setlocal EnableExtensions
 chcp 65001 >nul
 set "AECMB_PRODUCT=AutoCAD"
+set "AECMB_TITLE=AutoCAD MCP setup"
 if /i "%~1"=="--self-updated" set "AECMB_SELF_UPDATED=1"
-title AutoCAD MCP setup v2026.11.03.01
+title %AECMB_TITLE% v2026.11.03.02
 
 echo.
-echo AutoCAD MCP setup v2026.11.03.01
+echo %AECMB_TITLE% v2026.11.03.02
 echo This script configures only the selected product without removing or replacing unrelated MCP servers.
 echo.
 
@@ -39,13 +40,13 @@ set "EXIT_CODE=%ERRORLEVEL%"
 
 rem Exit code 75: the payload downloaded and validated a newer installer.
 rem The whole block is parsed before it runs, so replacing this file here is safe.
-if "%EXIT_CODE%"=="75" if exist "%TEMP%\SetupMCP_AutoCAD_selfupdate.cmd" (
+if "%EXIT_CODE%"=="75" if exist "%TEMP%\SetupMCP_%AECMB_PRODUCT%_selfupdate.cmd" (
     copy /y "%TEMP%\SetupMCP_AutoCAD_selfupdate.cmd" "%~f0" >nul && (
         echo [OK] Installer was updated. Restarting the new version...
         start "" "%~f0" --self-updated
     ) || (
         echo [WARNING] This installer file could not be replaced. Starting the downloaded copy instead...
-        start "" "%TEMP%\SetupMCP_AutoCAD_selfupdate.cmd" --self-updated
+        start "" "%TEMP%\SetupMCP_%AECMB_PRODUCT%_selfupdate.cmd" --self-updated
     )
     exit /b 0
 )
@@ -64,11 +65,34 @@ exit /b %EXIT_CODE%
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $StepNumber = 0
-$script:BridgeProduct = 'AutoCAD'
-$script:BridgeProductLabel = 'AutoCAD'
+# One payload serves both products; the batch header above selects the product.
+$script:BridgeProduct = if ($env:AECMB_PRODUCT -eq 'Revit') { 'Revit' } else { 'AutoCAD' }
+$script:BridgeProductLabel = $script:BridgeProduct
 # Keep in sync with the title/echo lines above; self-update compares this value.
-$script:InstallerVersion = '2026.11.03.01'
-$script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20AutoCAD.cmd'
+$script:InstallerVersion = '2026.11.03.02'
+if ($script:BridgeProduct -eq 'Revit') {
+    $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/aec-model-bridge/main/installer/SetupMCP%20Revit.cmd'
+    # Installed server checkout, its maintained fork and the server process marker.
+    $script:ProductRepo = [pscustomobject]@{
+        Root = (Join-Path $env:ProgramData 'AECModelBridge\source')
+        Url = 'https://github.com/Moorlack/aec-model-bridge.git'
+        Branch = 'main'
+        Name = 'AEC Model Bridge'
+        ServerPattern = 'revit_mcp_server'
+        AppProcess = 'Revit'
+    }
+}
+else {
+    $script:InstallerUpdateUrl = 'https://raw.githubusercontent.com/Moorlack/best-cad-mcp/master/installer/SetupMCP%20AutoCAD.cmd'
+    $script:ProductRepo = [pscustomobject]@{
+        Root = (Join-Path $env:ProgramData 'AECModelBridge\autocad')
+        Url = 'https://github.com/Moorlack/best-cad-mcp.git'
+        Branch = 'master'
+        Name = 'best-cad-mcp'
+        ServerPattern = 'src\.server'
+        AppProcess = $null
+    }
+}
 
 function Write-Ok([string]$Message) {
     Write-Host "[OK] $Message" -ForegroundColor Green
@@ -419,8 +443,8 @@ function Get-InstallerVersionFromText([string]$Text) {
 }
 
 function Test-InstallerText([string]$Text) {
-    # A downloaded installer must be a complete AutoCAD setup whose payload parses.
-    if ($Text -notmatch '(?m)^set "AECMB_PRODUCT=AutoCAD"') { return 'it is not the AutoCAD installer' }
+    # A downloaded installer must be a complete setup for the same product whose payload parses.
+    if ($Text -notmatch ('(?m)^set "AECMB_PRODUCT=' + $script:BridgeProduct + '"')) { return "it is not the $($script:BridgeProduct) installer" }
     $lines = $Text -split "`r?`n"
     $marker = [Array]::IndexOf($lines, '# POWERSHELL_PAYLOAD')
     if ($marker -lt 0) { return 'the PowerShell payload marker is missing' }
@@ -465,7 +489,7 @@ function Update-InstallerIfNewer {
         return $false
     }
 
-    $target = Join-Path $env:TEMP 'SetupMCP_AutoCAD_selfupdate.cmd'
+    $target = Join-Path $env:TEMP "SetupMCP_$($script:BridgeProduct)_selfupdate.cmd"
     [System.IO.File]::WriteAllText($target, $content, [System.Text.UTF8Encoding]::new($false))
     Write-Ok "Installer $remoteVersion was downloaded (current $($script:InstallerVersion)). This window will restart it."
     return $true
@@ -506,10 +530,10 @@ function Invoke-GitQuery {
     }
 }
 
-function Get-AutoCadUpdateStatus {
-    # Compares the installed checkout with fork/master without fetching or changing files.
-    $root = Join-Path $env:ProgramData 'AECModelBridge\autocad'
-    $repoUrl = 'https://github.com/Moorlack/best-cad-mcp.git'
+function Get-ProductUpdateStatus {
+    # Compares the installed checkout with the maintained fork without fetching or changing files.
+    $root = $script:ProductRepo.Root
+    $repoUrl = $script:ProductRepo.Url
     $status = [pscustomobject]@{ State = 'Unknown'; Local = ''; Remote = ''; Detail = '' }
     if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) {
         $status.State = 'NotInstalled'
@@ -530,7 +554,7 @@ function Get-AutoCadUpdateStatus {
     }
     $status.Local = $local.Output
 
-    $remote = Invoke-GitQuery -GitExe $git -Arguments @('ls-remote', $repoUrl, 'refs/heads/master')
+    $remote = Invoke-GitQuery -GitExe $git -Arguments @('ls-remote', $repoUrl, "refs/heads/$($script:ProductRepo.Branch)")
     $remoteSha = (($remote.Output -split '\s+') | Select-Object -First 1)
     if ($remote.ExitCode -ne 0 -or $remoteSha -notmatch '^[0-9a-f]{40}$') {
         $status.Detail = "the latest version could not be checked ($($remote.Error))"
@@ -554,14 +578,16 @@ function Get-AutoCadUpdateStatus {
     return $status
 }
 
-function Write-AutoCadUpdateStatus($Status) {
+function Write-ProductUpdateStatus($Status) {
     $short = { param($sha) if ($sha) { $sha.Substring(0, 7) } else { '?' } }
+    $label = "$($script:BridgeProductLabel) MCP"
+    $branch = "fork/$($script:ProductRepo.Branch)"
     switch ($Status.State) {
-        'UpToDate' { Write-Ok "Installed AutoCAD MCP $(& $short $Status.Local) is the latest fork/master. Every action below only repairs." }
-        'UpdateAvailable' { Write-Host "[UPDATE] AutoCAD MCP update available. Any Install/Repair action or the server-only update applies it." -ForegroundColor Magenta }
-        'LocalAhead' { Write-WarningMessage "Installed AutoCAD MCP $(& $short $Status.Local) is newer than fork/master $(& $short $Status.Remote). No update will be downloaded; actions only repair." }
-        'NotInstalled' { Write-Info 'AutoCAD MCP is not installed yet; an Install action downloads the latest fork/master.' }
-        default { Write-WarningMessage "Could not check for AutoCAD MCP updates: $($Status.Detail). Actions still try to update." }
+        'UpToDate' { Write-Ok "Installed $label $(& $short $Status.Local) is the latest $branch. Every action below only repairs." }
+        'UpdateAvailable' { Write-Host "[UPDATE] $label update available. Any Install/Repair action or the server-only update applies it." -ForegroundColor Magenta }
+        'LocalAhead' { Write-WarningMessage "Installed $label $(& $short $Status.Local) is newer than $branch $(& $short $Status.Remote). No update will be downloaded; actions only repair." }
+        'NotInstalled' { Write-Info "$label is not installed yet; an Install action downloads the latest $branch." }
+        default { Write-WarningMessage "Could not check for $label updates: $($Status.Detail). Actions still try to update." }
     }
     if ($Status.State -ne 'Unknown' -and $Status.Detail) { Write-Info "Note: $($Status.Detail)." }
 }
@@ -596,13 +622,11 @@ function Select-TargetClient {
 
     $updateNote = $null
     $noUpdates = $false
-    if ($script:BridgeProduct -eq 'AutoCAD') {
-        Write-Info 'Checking the installed AutoCAD MCP version against fork/master...'
-        $script:AutoCadUpdateStatus = Get-AutoCadUpdateStatus
-        Write-AutoCadUpdateStatus $script:AutoCadUpdateStatus
-        $updateNote = Get-UpdateNote $script:AutoCadUpdateStatus
-        $noUpdates = $script:AutoCadUpdateStatus.State -in @('UpToDate', 'LocalAhead')
-    }
+    Write-Info "Checking the installed $($script:BridgeProductLabel) MCP version against fork/$($script:ProductRepo.Branch)..."
+    $script:ProductUpdateStatus = Get-ProductUpdateStatus
+    Write-ProductUpdateStatus $script:ProductUpdateStatus
+    $updateNote = Get-UpdateNote $script:ProductUpdateStatus
+    $noUpdates = $script:ProductUpdateStatus.State -in @('UpToDate', 'LocalAhead')
     # Nothing to download means a configured client can only be repaired.
     $repairVerb = if ($noUpdates) { 'Repair' } else { 'Repair or extend' }
 
@@ -639,16 +663,15 @@ function Select-TargetClient {
     })
     $nextNumber++
 
-    # All AI clients start the same installed AutoCAD MCP code, so a code-only
+    # All AI clients start the same installed MCP code, so a code-only
     # update does not need to rewrite any client registration.
-    $autoCadInstalled = ($script:BridgeProduct -eq 'AutoCAD') -and
-        (Test-Path -LiteralPath (Join-Path $env:ProgramData 'AECModelBridge\autocad\.git'))
-    if ($autoCadInstalled) {
+    $productInstalled = Test-Path -LiteralPath (Join-Path $script:ProductRepo.Root '.git')
+    if ($productInstalled) {
         $serverLabel = if ($noUpdates) {
-            'Repair the shared AutoCAD MCP server (all clients; client settings unchanged)'
+            "Repair the shared $($script:BridgeProductLabel) MCP server (all clients; client settings unchanged)"
         }
         else {
-            'Update only the shared AutoCAD MCP server (all clients; client settings unchanged)'
+            "Update only the shared $($script:BridgeProductLabel) MCP server (all clients; client settings unchanged)"
         }
         Write-MenuOption $nextNumber $serverLabel 'Cyan' $updateNote
         $options.Add([pscustomobject]@{
@@ -699,7 +722,7 @@ function Select-TargetClient {
 
     if ($selectedOption.Action -eq 'UpdateServer') {
         $script:SelectedAction = 'UpdateServer'
-        Write-Ok 'Shared AutoCAD MCP server update was selected. Client registrations will not be changed.'
+        Write-Ok "Shared $($script:BridgeProductLabel) MCP server update was selected. Client registrations will not be changed."
         return 'Server'
     }
 
@@ -708,26 +731,136 @@ function Select-TargetClient {
     return $selectedOption.Client
 }
 
-function Get-RunningAutoCadMcpProcesses([string]$AutoCadRoot) {
-    $prefix = [System.IO.Path]::GetFullPath($AutoCadRoot).TrimEnd('\') + '\'
+function Get-RunningProductMcpProcesses {
+    $prefix = [System.IO.Path]::GetFullPath($script:ProductRepo.Root).TrimEnd('\') + '\'
     @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $_.ExecutablePath -and $_.CommandLine -and
         $_.ExecutablePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) -and
-        $_.CommandLine -match 'src\.server'
+        $_.CommandLine -match $script:ProductRepo.ServerPattern
     })
 }
 
-function Confirm-NoRunningAutoCadMcp([string]$AutoCadRoot) {
+function Confirm-NoRunningProductMcp {
     # Running clients keep the old server code and tool list until restarted.
-    $running = Get-RunningAutoCadMcpProcesses $AutoCadRoot
+    if ($script:ProductRepo.AppProcess -and (Get-Process -Name $script:ProductRepo.AppProcess -ErrorAction SilentlyContinue)) {
+        Write-WarningMessage "$($script:BridgeProductLabel) is running. Its add-in files are locked while it is open; close $($script:BridgeProductLabel) before the update."
+    }
+    $running = Get-RunningProductMcpProcesses
     if (-not $running.Count) {
-        Write-Ok 'No running AutoCAD MCP server processes were found.'
+        Write-Ok "No running $($script:BridgeProductLabel) MCP server processes were found."
         return $true
     }
-    Write-WarningMessage "$($running.Count) AutoCAD MCP server process(es) are still running. Clients keep the old tools until they are fully closed (including the tray)."
+    Write-WarningMessage "$($running.Count) $($script:BridgeProductLabel) MCP server process(es) are still running. Clients keep the old tools until they are fully closed (including the tray)."
     $running | ForEach-Object { Write-Info ("PID {0}, started {1}" -f $_.ProcessId, $_.CreationDate) }
     $answer = Read-Host 'Close Claude, Codex and Antigravity first. Continue the update anyway? [Y/N]'
     return ($answer -match '^(?i)y(?:es)?$')
+}
+
+function Sync-ProductCheckout {
+    param(
+        [Parameter(Mandatory)][string]$GitExe,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$RepoUrl,
+        [Parameter(Mandatory)][string]$Branch,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    Write-Info "Repository path: $Root"
+    Write-Info "Repository URL: $RepoUrl ($Branch)"
+    $safeDirectory = 'safe.directory=' + ($Root -replace '\\', '/')
+
+    if (Test-Path -LiteralPath (Join-Path $Root '.git')) {
+        Write-Info 'An existing Git repository was found.'
+        # Adopt the maintained fork so existing installations receive its fixes.
+        Invoke-CheckedProcess -FilePath $GitExe -Arguments @('-c', $safeDirectory, '-C', $Root, 'remote', 'set-url', 'origin', $RepoUrl) -Description "Selecting the maintained $Name fork" -WorkingDirectory $Root
+
+        $changes = Invoke-GitQuery -GitExe $GitExe -Arguments @('-c', $safeDirectory, '-C', $Root, 'status', '--porcelain')
+        if ($changes.ExitCode -ne 0) {
+            throw "Unable to inspect local changes in the $Name repository (git exit code $($changes.ExitCode)). $($changes.Error)"
+        }
+        if ($changes.Output) {
+            $stashMessage = "$Name setup backup $(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            Write-WarningMessage "Local $Name source changes were found. Saving them to Git stash before update."
+            Invoke-CheckedProcess -FilePath $GitExe -Arguments @('-c', $safeDirectory, '-C', $Root, 'stash', 'push', '--include-untracked', '-m', $stashMessage) -Description "Saving local $Name changes before update" -WorkingDirectory $Root
+            Write-Info "Saved local source changes to Git stash: $stashMessage"
+        }
+
+        Write-Host "  > Updating $Name from the maintained fork" -ForegroundColor White
+        $pull = Invoke-GitQuery -GitExe $GitExe -Arguments @('-c', $safeDirectory, '-C', $Root, 'pull', '--ff-only', 'origin', $Branch) -TimeoutMs 600000
+        if ($script:LogPath) {
+            Add-Content -LiteralPath $script:LogPath -Value "`r`n--- git pull --ff-only origin $Branch (exit $($pull.ExitCode)) ---`r`n$($pull.Output)`r`n$($pull.Error)" -ErrorAction SilentlyContinue
+        }
+        if ($pull.ExitCode -eq 0) {
+            Write-Ok "$Name repository was updated."
+            return
+        }
+
+        # Typical cause: an old copy whose history diverged from the maintained fork
+        # ("Not possible to fast-forward"). If the fork is reachable, keep the copy as a
+        # backup and download the fork again instead of stopping setup.
+        $reach = Invoke-GitQuery -GitExe $GitExe -Arguments @('ls-remote', '--heads', $RepoUrl) -TimeoutMs 60000
+        if ($reach.ExitCode -ne 0) {
+            throw "$Name repository update failed (git exit code $($pull.ExitCode)), and $RepoUrl is not reachable. Check the internet connection, proxy or firewall and run setup again. $($pull.Error)"
+        }
+        $backupFolder = "$Root.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        Write-WarningMessage "The existing $Name source cannot be fast-forwarded to the maintained fork: $(($pull.Error -split "`r?`n" | Where-Object { $_ -match 'fatal' } | Select-Object -First 1))"
+        Write-WarningMessage "Keeping it as $backupFolder and downloading a fresh copy."
+        try {
+            Move-Item -LiteralPath $Root -Destination $backupFolder -ErrorAction Stop
+        }
+        catch {
+            throw "Could not move $Root to $backupFolder. Close $($script:BridgeProductLabel), the AI clients and any program using files in that folder, then run setup again. Details: $($_.Exception.Message)"
+        }
+        if ($changes.Output) {
+            Write-Info "The local changes saved to Git stash stay in the backup: git -C `"$backupFolder`" stash list"
+        }
+    }
+    elseif (Test-Path -LiteralPath $Root) {
+        $backupFolder = "$Root.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        Write-WarningMessage "A non-Git source folder exists and will be moved to $backupFolder."
+        Move-Item -LiteralPath $Root -Destination $backupFolder -ErrorAction Stop
+    }
+
+    New-Item -ItemType Directory -Path (Split-Path $Root -Parent) -Force -ErrorAction Stop | Out-Null
+    Invoke-CheckedProcess -FilePath $GitExe -Arguments @('clone', '--branch', $Branch, '--depth', '1', $RepoUrl, $Root) -Description "Downloading $Name from the maintained fork" -WorkingDirectory (Split-Path $Root -Parent)
+    if (-not (Test-Path -LiteralPath (Join-Path $Root '.git'))) {
+        throw "git clone reported success, but the repository was not created at $Root."
+    }
+    Write-Ok "$Name repository was downloaded."
+}
+
+function Write-InstalledProductVersion([string]$GitExe) {
+    $root = $script:ProductRepo.Root
+    $safeDirectory = 'safe.directory=' + ($root -replace '\\', '/')
+    $installed = Invoke-GitQuery -GitExe $GitExe -Arguments @('-c', $safeDirectory, '-C', $root, 'log', '-1', '--format=%h %s')
+    if ($installed.ExitCode -eq 0 -and $installed.Output) { Write-Ok "Installed $($script:BridgeProductLabel) MCP version: $($installed.Output)" }
+}
+
+function Complete-ServerOnlyUpdate {
+    # Server-only action: client registrations stay as they are.
+    $clientsToRestart = @()
+    if (Test-CodexBridgeConfigured) { $clientsToRestart += 'ChatGPT/Codex' }
+    if (Test-ClaudeBridgeConfigured) { $clientsToRestart += 'Claude' }
+    if (Test-AntigravityBridgeConfigured) { $clientsToRestart += 'Google Antigravity' }
+    Write-Host ''
+    Write-Ok "Done. The shared $($script:BridgeProductLabel) MCP server was updated; client registrations were not changed."
+    if ($clientsToRestart) { Write-Info "Fully restart (including the tray): $($clientsToRestart -join ', '), then $($script:BridgeProductLabel)." }
+    else { Write-WarningMessage 'No configured AI client was detected. Use Install/Repair for a client to register the server.' }
+    Write-Info "Full log file: $script:LogPath"
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
+}
+
+function Confirm-ServerOnlyUpdate {
+    if ($script:SelectedAction -ne 'UpdateServer') { return }
+    Start-Step `
+        -Title "Check running $($script:BridgeProductLabel) MCP clients" `
+        -Explanation 'The code is shared by every AI client. Clients started before the update keep using the previous version.'
+    if (-not (Confirm-NoRunningProductMcp)) {
+        Write-WarningMessage 'Update was cancelled. No changes were made.'
+        try { Stop-Transcript | Out-Null } catch {}
+        exit 0
+    }
 }
 
 function Ensure-WinGet {
@@ -784,10 +917,19 @@ function Install-WinGetPackage {
         $arguments += @('--source', $Source)
     }
 
-    Invoke-CheckedProcess `
-        -FilePath 'winget.exe' `
-        -Arguments $arguments `
-        -Description "Install or update $DisplayName"
+    try {
+        Invoke-CheckedProcess `
+            -FilePath 'winget.exe' `
+            -Arguments $arguments `
+            -Description "Install or update $DisplayName"
+    }
+    catch {
+        # WinGet (notably the Microsoft Store source) exits non-zero when the package
+        # is already installed and has no newer version.
+        $listed = Invoke-GitQuery -GitExe 'winget.exe' -Arguments @('list', '--exact', '--id', $Id, '--accept-source-agreements', '--disable-interactivity') -TimeoutMs 120000
+        if ($listed.ExitCode -ne 0) { throw }
+        Write-Info "$DisplayName is already installed and has no available update."
+    }
 
     Refresh-ProcessPath
 }
@@ -1386,19 +1528,34 @@ function Remove-CodexBridge {
         $codex = Get-CommandPath 'codex.exe'
     }
 
-    if (-not $codex) {
-        throw 'Codex CLI is required to remove the MCP registrations, but the codex command was not found.'
-    }
-
     $configPath = Join-Path $env:USERPROFILE '.codex\config.toml'
-    Backup-File $configPath | Out-Null
-
     $namesToRemove = if ($script:BridgeProduct -eq 'AutoCAD') {
         @('best-cad-mcp-autocad')
     }
     else {
         @('aec-model-bridge', 'aec-model-bridge-revit-2024', 'aec-model-bridge-revit-2025', 'aec-model-bridge-revit-2026', 'aec-model-bridge-revit-2027')
     }
+
+    if (-not $codex) {
+        # Without the CLI, remove the entries from config.toml directly.
+        if (-not (Test-Path -LiteralPath $configPath)) {
+            Write-Info 'Codex is not configured on this computer.'
+            return
+        }
+        Backup-File $configPath | Out-Null
+        $content = Get-Content -LiteralPath $configPath -Raw
+        $updated = $content
+        foreach ($name in $namesToRemove) {
+            $updated = [regex]::Replace($updated, '(?ms)^\[mcp_servers\.' + [regex]::Escape($name) + '(\.[^\]]*)?\]\s*\r?\n.*?(?=^\[|\z)', '')
+        }
+        if ($updated -ne $content) {
+            [System.IO.File]::WriteAllText($configPath, $updated, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "$($script:BridgeProductLabel) MCP entries were removed from the Codex configuration file."
+        }
+        return
+    }
+
+    Backup-File $configPath | Out-Null
     foreach ($name in $namesToRemove) {
         try { & $codex mcp remove $name *> $null } catch {}
     }
@@ -2375,8 +2532,14 @@ try {
 
     Clear-Host
     Write-Host ('=' * 72) -ForegroundColor DarkGray
-    Write-Host 'AUTOCAD MCP SETUP' -ForegroundColor Cyan
-    Write-Host 'AutoCAD 2020+ / Codex / Claude / Google Antigravity' -ForegroundColor Gray
+    if ($script:BridgeProduct -eq 'Revit') {
+        Write-Host 'AEC MODEL BRIDGE REVIT SETUP' -ForegroundColor Cyan
+        Write-Host 'Revit 2024-2027 / Codex / Claude / Google Antigravity' -ForegroundColor Gray
+    }
+    else {
+        Write-Host 'AUTOCAD MCP SETUP' -ForegroundColor Cyan
+        Write-Host 'AutoCAD 2020+ / Codex / Claude / Google Antigravity' -ForegroundColor Gray
+    }
     Write-Host ('=' * 72) -ForegroundColor DarkGray
     Write-Host ''
     Write-Host 'The installer will show only the current action and its result.'
@@ -2445,7 +2608,7 @@ try {
 
     Start-Step `
         -Title "Detect supported $($script:BridgeProductLabel) versions" `
-        -Explanation 'The script detects full AutoCAD 2020 and later. AutoCAD LT is not supported by the COM bridge.'
+        -Explanation $(if ($script:BridgeProduct -eq 'Revit') { 'The script installs the add-in only for Revit 2024-2027 versions that are actually present on this computer.' } else { 'The script detects full AutoCAD 2020 and later. AutoCAD LT is not supported by the COM bridge.' })
 
     $revitVersions = @()
     $autoCadVersions = @()
@@ -2495,101 +2658,15 @@ try {
         }
     }
 
+    Confirm-ServerOnlyUpdate
+
     Start-Step `
         -Title 'Download or update AEC Model Bridge' `
         -Explanation 'The source is stored in ProgramData. An existing repository is updated instead of being deleted.'
 
-    $sourceRoot = Join-Path $env:ProgramData 'AECModelBridge\source'
-    $repoUrl = 'https://github.com/Moorlack/aec-model-bridge.git'
-
-    Write-Info "Repository path: $sourceRoot"
-    Write-Info "Repository URL: $repoUrl"
-    Write-Info "Git executable: $gitExe"
-
-    $gitMetadataPath = Join-Path -Path $sourceRoot -ChildPath '.git'
-    $repositoryExists = Test-Path -LiteralPath $gitMetadataPath
-
-    if ($repositoryExists) {
-        Write-Info "An existing Git repository was found."
-
-        # Adopt the maintained fork so existing installations receive the tested
-        # fixes and bundled Codex skill on their next repair/extend run.
-        & $gitExe -C $sourceRoot remote set-url origin $repoUrl
-        if ($LASTEXITCODE -ne 0) {
-            throw "Unable to point the AEC Model Bridge repository at the maintained fork (git exit code $LASTEXITCODE)."
-        }
-
-        # The maintained fork already contains our fixes. Preserve user changes
-        # before the update instead of failing with unstaged local files.
-        $repositoryStatus = & $gitExe -C $sourceRoot status --porcelain 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Unable to inspect local changes in the AEC Model Bridge repository (git exit code $LASTEXITCODE)."
-        }
-        if ($repositoryStatus) {
-            $stashMessage = "AEC Model Bridge setup backup $(Get-Date -Format 'yyyyMMdd_HHmmss')"
-            Write-WarningMessage 'Local AEC Model Bridge source changes were found. Saving them to Git stash before update.'
-            & $gitExe -C $sourceRoot stash push --include-untracked -m $stashMessage
-            $stashExitCode = $LASTEXITCODE
-            if ($stashExitCode -ne 0) {
-                throw "AEC Model Bridge local-change backup failed with git exit code $stashExitCode."
-            }
-            Write-Info "Saved local source changes to Git stash: $stashMessage"
-            Write-Info 'The maintained fork will be restored on update. Other saved changes remain recoverable with: git -C <source path> stash list / stash pop'
-        }
-
-        Write-Info ("Command: {0} -C {1} pull --ff-only" -f $gitExe, $sourceRoot)
-
-        $previousErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            & $gitExe -C $sourceRoot pull --ff-only
-            $gitExitCode = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $previousErrorActionPreference
-        }
-
-        Write-Info "git pull exit code: $gitExitCode"
-        if ($gitExitCode -ne 0) {
-            throw "AEC Model Bridge repository update failed with git exit code $gitExitCode."
-        }
-
-        Write-Ok "AEC Model Bridge repository was updated."
-    }
-    else {
-        if (Test-Path -LiteralPath $sourceRoot) {
-            $backupFolder = "$sourceRoot.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-            Write-WarningMessage "A non-Git source folder exists and will be moved to $backupFolder."
-            Move-Item -LiteralPath $sourceRoot -Destination $backupFolder -ErrorAction Stop
-        }
-
-        $sourceParent = Split-Path $sourceRoot -Parent
-        New-Item -ItemType Directory -Path $sourceParent -Force -ErrorAction Stop | Out-Null
-
-        Write-Info "Downloading the AEC Model Bridge repository."
-        Write-Info ("Command: {0} clone --depth 1 {1} {2}" -f $gitExe, $repoUrl, $sourceRoot)
-
-        $previousErrorActionPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            & $gitExe clone --depth 1 $repoUrl $sourceRoot
-            $gitExitCode = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $previousErrorActionPreference
-        }
-
-        Write-Info "git clone exit code: $gitExitCode"
-        if ($gitExitCode -ne 0) {
-            throw "AEC Model Bridge repository download failed with git exit code $gitExitCode."
-        }
-
-        if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot '.git'))) {
-            throw "git clone reported success, but the repository was not created at $sourceRoot."
-        }
-
-        Write-Ok "AEC Model Bridge repository was downloaded."
-    }
+    $sourceRoot = $script:ProductRepo.Root
+    Sync-ProductCheckout -GitExe $gitExe -Root $sourceRoot -RepoUrl $script:ProductRepo.Url -Branch $script:ProductRepo.Branch -Name $script:ProductRepo.Name
+    Write-InstalledProductVersion -GitExe $gitExe
 
     Start-Step `
         -Title 'Verify the Revit transaction fix' `
@@ -2970,6 +3047,10 @@ try {
 
     Test-McpServerStartup -PythonExe $venvPython -WorkingDirectory $sourceRoot
 
+    if ($script:SelectedAction -eq 'UpdateServer') {
+        Complete-ServerOnlyUpdate
+    }
+
     Start-Step `
         -Title "Configure $client" `
         -Explanation "Only the AEC Model Bridge entry is added or repaired. Existing unrelated MCP servers and client settings are preserved."
@@ -2990,46 +3071,14 @@ try {
     }
 
     if ($script:BridgeProduct -eq 'AutoCAD') {
-    if ($script:SelectedAction -eq 'UpdateServer') {
-        Start-Step `
-            -Title 'Check running AutoCAD MCP clients' `
-            -Explanation 'The code is shared by every AI client. Clients started before the update keep using the previous version.'
-        if (-not (Confirm-NoRunningAutoCadMcp (Join-Path $env:ProgramData 'AECModelBridge\autocad'))) {
-            Write-WarningMessage 'Update was cancelled. No changes were made.'
-            try { Stop-Transcript | Out-Null } catch {}
-            exit 0
-        }
-    }
+    Confirm-ServerOnlyUpdate
 
     Start-Step `
         -Title 'Download or update best-cad-mcp' `
         -Explanation 'The AutoCAD MCP source is stored separately in ProgramData. An existing repository is updated instead of being deleted.'
 
-    $autoCadRoot = Join-Path $env:ProgramData 'AECModelBridge\autocad'
-    $autoCadRepoUrl = 'https://github.com/Moorlack/best-cad-mcp.git'
-    $autoCadRepoBranch = 'master'
-    $autoCadGitPath = Join-Path $autoCadRoot '.git'
-    if (Test-Path -LiteralPath $autoCadGitPath) {
-        Invoke-CheckedProcess -FilePath $gitExe -Arguments @('-C', $autoCadRoot, 'remote', 'set-url', 'origin', $autoCadRepoUrl) -Description 'Selecting the maintained AutoCAD MCP fork' -WorkingDirectory $autoCadRoot
-        $autoCadStatus = & $gitExe -C $autoCadRoot status --porcelain 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Unable to inspect local changes in the best-cad-mcp repository (git exit code $LASTEXITCODE)."
-        }
-        if ($autoCadStatus) {
-            $stashMessage = "best-cad-mcp setup backup $(Get-Date -Format 'yyyyMMdd_HHmmss')"
-            Write-WarningMessage 'Local best-cad-mcp source changes were found. Saving them to Git stash before update.'
-            Invoke-CheckedProcess -FilePath $gitExe -Arguments @('-C', $autoCadRoot, 'stash', 'push', '--include-untracked', '-m', $stashMessage) -Description 'Saving local best-cad-mcp changes before update' -WorkingDirectory $autoCadRoot
-            Write-Info "Saved local source changes to Git stash: $stashMessage"
-        }
-        Invoke-CheckedProcess -FilePath $gitExe -Arguments @('-C', $autoCadRoot, 'pull', '--ff-only', 'origin', $autoCadRepoBranch) -Description 'Updating best-cad-mcp from the maintained fork' -WorkingDirectory $autoCadRoot
-    }
-    else {
-        if (Test-Path -LiteralPath $autoCadRoot) {
-            Move-Item -LiteralPath $autoCadRoot -Destination "$autoCadRoot.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')" -ErrorAction Stop
-        }
-        New-Item -ItemType Directory -Path (Split-Path $autoCadRoot -Parent) -Force | Out-Null
-        Invoke-CheckedProcess -FilePath $gitExe -Arguments @('clone', '--branch', $autoCadRepoBranch, '--depth', '1', $autoCadRepoUrl, $autoCadRoot) -Description 'Downloading best-cad-mcp from the maintained fork' -WorkingDirectory (Split-Path $autoCadRoot -Parent)
-    }
+    $autoCadRoot = $script:ProductRepo.Root
+    Sync-ProductCheckout -GitExe $gitExe -Root $autoCadRoot -RepoUrl $script:ProductRepo.Url -Branch $script:ProductRepo.Branch -Name $script:ProductRepo.Name
 
     Start-Step `
         -Title 'Prepare the AutoCAD MCP server' `
@@ -3047,21 +3096,10 @@ try {
     Invoke-CheckedProcess -FilePath $autoCadPython -Arguments @('-m', 'src.visual_selftest') -Description 'Checking image conversion without opening or changing AutoCAD drawings' -WorkingDirectory $autoCadRoot
     Test-AutoCadMcpServerStartup -PythonExe $autoCadPython -WorkingDirectory $autoCadRoot
 
-    $installedCommit = (& $gitExe -C $autoCadRoot log -1 --format='%h %s' 2>$null | Out-String).Trim()
-    if ($installedCommit) { Write-Ok "Installed AutoCAD MCP version: $installedCommit" }
+    Write-InstalledProductVersion -GitExe $gitExe
 
     if ($script:SelectedAction -eq 'UpdateServer') {
-        $clientsToRestart = @()
-        if (Test-CodexBridgeConfigured) { $clientsToRestart += 'ChatGPT/Codex' }
-        if (Test-ClaudeBridgeConfigured) { $clientsToRestart += 'Claude' }
-        if (Test-AntigravityBridgeConfigured) { $clientsToRestart += 'Google Antigravity' }
-        Write-Host ''
-        Write-Ok 'Done. The shared AutoCAD MCP server was updated; client registrations were not changed.'
-        if ($clientsToRestart) { Write-Info "Fully restart (including the tray): $($clientsToRestart -join ', '), then AutoCAD." }
-        else { Write-WarningMessage 'No configured AI client was detected. Use Install/Repair for a client to register the server.' }
-        Write-Info "Full log file: $logPath"
-        try { Stop-Transcript | Out-Null } catch {}
-        exit 0
+        Complete-ServerOnlyUpdate
     }
 
     $allowedDirectories = Get-AllowedDirectories
